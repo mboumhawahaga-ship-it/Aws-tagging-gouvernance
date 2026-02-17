@@ -1,0 +1,53 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Lambda
+*.zip
+lambda/*/node_modules/
+lambda/*/__pycache__/
+lambda/*/.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+
+# Logs
+*.log
+
+# Secrets
+*.pem
+*.key
+.env
+credentials.json
+secrets.yaml
+sensible/.env
+!sensible/.env.example
+
+# Claude Code
+.claude/
+
+# Infracost
+.infracost/
+
+# Python
+__pycache__/
+*.pyc
