@@ -1,0 +1,12 @@
+# ========================================
+# EXEMPLE DE VARIABLES
+# Renommez ce fichier en terraform.tfvars pour l'utiliser
+# ========================================
+
+# Région AWS
+aws_region = "eu-west-1" # Paris
+
+# Informations de tagging par défaut pour votre équipe
+default_owner       = "VotreNom"
+default_squad       = "VotreEquipe"
+default_cost_center = "CC-XXX"
