@@ -1,6 +1,6 @@
 # AWS Tagging Governance
 
-![Quality & Security Check](https://github.com/VOTRE-USERNAME/aws-tagging-governance/actions/workflows/ci-quality.yml/badge.svg)
+![Quality & Security Check](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml/badge.svg)
 
 **Systeme complet de gouvernance de tagging pour AWS**
 
