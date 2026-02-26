@@ -67,8 +67,7 @@ Toutes les ressources AWS **doivent** avoir ces tags :
 
 ```bash
 # 1. Cloner le projet
-git clone https://github.com/VOTRE-USERNAME/aws-tagging-governance.git
-cd aws-tagging-governance
+git clone git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
 
 # 2. Configurer les secrets
 cp sensible/.env.example sensible/.env
