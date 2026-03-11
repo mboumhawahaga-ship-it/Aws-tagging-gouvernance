@@ -81,16 +81,8 @@ def is_within_grace_period(creation_time: datetime) -> bool:
 
 
 def cleanup_ec2_instances() -> Dict[str, Any]:
-    """Nettoie les instances EC2 sans tags obligatoires"""
-
     print("🖥️  Scan des instances EC2...")
-
-    results = {
-        "ec2_scanned": 0,
-        "ec2_non_compliant": 0,
-        "ec2_deleted": 0,
-        "ec2_in_grace_period": 0
-    }
+    results = {"ec2_scanned": 0, "ec2_non_compliant": 0, "ec2_deleted": 0, "ec2_in_grace_period": 0}
 
     try:
         response = ec2_client.describe_instances()
@@ -98,36 +90,36 @@ def cleanup_ec2_instances() -> Dict[str, Any]:
         for reservation in response['Reservations']:
             for instance in reservation['Instances']:
                 instance_id = instance['InstanceId']
-                tags = instance.get('Tags', [])
-                launch_time = instance.get('LaunchTime')
                 state = instance.get('State', {}).get('Name')
-
+                
+                # --- ÉTAPE 1 : ON COMPTE TOUT CE QU'ON VOIT ---
                 results["ec2_scanned"] += 1
 
-                # Ignorer les instances déjà terminées
+                # --- ÉTAPE 2 : ON IGNORE CE QUI EST DÉJÀ EN TRAIN DE PARTIR ---
+                # C'est ici que Claude intervient : on ne touche pas aux morts
                 if state in ['terminated', 'terminating']:
                     continue
 
-                # Vérifier les tags
+                # --- ÉTAPE 3 : ON VÉRIFIE LES TAGS ---
+                tags = instance.get('Tags', [])
                 is_compliant, missing_tags = check_required_tags(tags)
 
                 if not is_compliant:
                     results["ec2_non_compliant"] += 1
-
-                    # Vérifier la période de grâce
+                    
+                    # --- ÉTAPE 4 : PÉRIODE DE GRÂCE (on laisse une chance aux nouvelles instances) ---
+                    launch_time = instance.get('LaunchTime')
                     if is_within_grace_period(launch_time):
                         results["ec2_in_grace_period"] += 1
-                        print(f"⏳ {instance_id} : En période de grâce (tags manquants : {missing_tags})")
+                        print(f"⏳ {instance_id} : En sursis (tags manquants : {missing_tags})")
                         continue
 
-                    print(f"❌ {instance_id} : Non conforme (tags manquants : {missing_tags})")
-
-                    # Suppression (ou simulation)
+                    # --- ÉTAPE 5 : ACTION (Suppression ou Simulation) ---
                     if DRY_RUN:
-                        print(f"🔍 DRY_RUN : {instance_id} serait supprimé")
+                        print(f"🔍 SIMULATION : {instance_id} serait supprimée car non-conforme")
                     else:
                         ec2_client.terminate_instances(InstanceIds=[instance_id])
-                        print(f"🗑️  {instance_id} supprimé")
+                        print(f"🗑️  {instance_id} TERMINÉE (Tags absents)")
                         results["ec2_deleted"] += 1
 
     except Exception as e:
