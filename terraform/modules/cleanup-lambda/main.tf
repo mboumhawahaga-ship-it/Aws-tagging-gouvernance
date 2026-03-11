@@ -1,7 +1,6 @@
 # ========================================
 # MODULE LAMBDA DE CLEANUP AUTOMATIQUE
 # ========================================
-# Récupère automatiquement l'ID du AWS
 
 locals {
   lambda_name = "${var.environment}-tag-cleanup"
