@@ -1,12 +1,13 @@
 """
 🤖 MODULE DE GOUVERNANCE AWS - CLEANUP AUTOMATIQUE
-Scanne EC2, RDS, S3 et Lambda. Supprime le non-conforme après une période de grâce.
+Scanne EC2, RDS, S3 et Lambda pour supprimer le non-conforme.
 """
 
 import os
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
+
 import boto3
 from botocore.exceptions import ClientError
 
@@ -69,7 +70,8 @@ def cleanup_ec2_instances() -> Dict[str, Any]:
                     compliant, _ = check_required_tags(instance.get('Tags', []))
                     if not compliant:
                         res["non_compliant"] += 1
-                        if is_within_grace_period(instance.get('LaunchTime')):
+                        launch_time = instance.get('LaunchTime')
+                        if is_within_grace_period(launch_time):
                             res["in_grace_period"] += 1
                             continue
 
@@ -129,9 +131,8 @@ def cleanup_s3_buckets() -> Dict[str, Any]:
             name = b['Name']
             res["scanned"] += 1
             try:
-                tags = s3_client.get_bucket_tagging(
-                    Bucket=name
-                ).get('TagSet', [])
+                tags_resp = s3_client.get_bucket_tagging(Bucket=name)
+                tags = tags_resp.get('TagSet', [])
             except ClientError:
                 tags = []
 
@@ -187,7 +188,8 @@ def is_within_grace_period(creation_time: datetime) -> bool:
     if not creation_time:
         return False
     delta = timedelta(hours=GRACE_PERIOD_HOURS)
-    return datetime.now(creation_time.tzinfo) - creation_time < delta
+    now = datetime.now(creation_time.tzinfo)
+    return now - creation_time < delta
 
 
 def delete_all_objects_in_bucket(bucket_name: str):
