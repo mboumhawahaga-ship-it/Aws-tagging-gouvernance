@@ -1,6 +1,8 @@
 # ========================================
 # MODULE LAMBDA DE CLEANUP AUTOMATIQUE
 # ========================================
+# Récupère automatiquement l'ID du AWS
+data "aws_caller_identity" "current" {}
 
 locals {
   lambda_name = "${var.environment}-tag-cleanup"
@@ -98,12 +100,19 @@ resource "aws_iam_role_policy" "lambda_policy" {
           # SNS
           "sns:Publish"
         ]
-        Resource = [
-        "arn:aws:ec2:eu-west-1:${data.aws_caller_identity.current.account_id}:instance/*",
-        "arn:aws:rds:eu-west-1:${data.aws_caller_identity.current.account_id}:db:*",
-        "arn:aws:s3:::*",
-        "arn:aws:lambda:eu-west-1:${data.aws_caller_identity.current.account_id}:function:*"
-      ]
+        Resource = Resource = [
+
+  "arn:aws:ec2:eu-west-1:${data.aws_caller_identity.current.account_id}:instance/*",
+ 
+  "arn:aws:rds:eu-west-1:${data.aws_caller_identity.current.account_id}:db:*",
+  
+  # S3 — les buckets n'ont pas de région dans leur ARN, c'est normal
+  "arn:aws:s3:::*",
+  
+  "arn:aws:lambda:eu-west-1:${data.aws_caller_identity.current.account_id}:function:*",
+  
+  "arn:aws:sns:eu-west-1:${data.aws_caller_identity.current.account_id}:*"
+]
       }
     ]
   })
