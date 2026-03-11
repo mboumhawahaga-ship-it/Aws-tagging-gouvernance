@@ -98,7 +98,12 @@ resource "aws_iam_role_policy" "lambda_policy" {
           # SNS
           "sns:Publish"
         ]
-        Resource = "*"
+        Resource = [
+        "arn:aws:ec2:eu-west-1:${data.aws_caller_identity.current.account_id}:instance/*",
+        "arn:aws:rds:eu-west-1:${data.aws_caller_identity.current.account_id}:db:*",
+        "arn:aws:s3:::*",
+        "arn:aws:lambda:eu-west-1:${data.aws_caller_identity.current.account_id}:function:*"
+      ]
       }
     ]
   })
