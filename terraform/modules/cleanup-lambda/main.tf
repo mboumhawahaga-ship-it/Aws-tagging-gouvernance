@@ -1,13 +1,16 @@
 # ========================================
 # MODULE LAMBDA DE CLEANUP AUTOMATIQUE
 # ========================================
+
 # Récupère automatiquement l'ID du AWS
-data "aws_caller_identity" "current" {}
 
 locals {
   lambda_name = "${var.environment}-tag-cleanup"
   lambda_zip  = "${path.module}/lambda_function.zip"
 }
+
+# Récupère automatiquement l'ID du compte AWS
+data "aws_caller_identity" "current" {}
 
 # ========================================
 # TOPIC SNS POUR LES NOTIFICATIONS
