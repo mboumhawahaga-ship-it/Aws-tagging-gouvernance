@@ -106,7 +106,13 @@ All AWS resources **must** have these tags — Terraform rejects creation if one
 - 30‑day cost evolution (time series)
 - Non‑compliant resources with colored background (red if > 5)
 
----
+docs-en-rewrite
+--
+```bash
+# 1. Cloner le projet
+git clone git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
+ 
+ main
 
 ## Results on demo environment
 
