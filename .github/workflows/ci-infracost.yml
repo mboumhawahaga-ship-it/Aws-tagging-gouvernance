@@ -2,6 +2,7 @@ name: "💰 FinOps Cost Estimation"
 
 on:
   pull_request:
+    types: [opened, synchronize, closed]
     paths:
       - 'terraform/**'
       - '.github/workflows/ci-infracost.yml'
@@ -27,12 +28,18 @@ jobs:
         run: |
           infracost breakdown \
             --path terraform/environments/dev \
-            --terraform-var-file terraform/environments/dev/terraform.tfvars.example \
             --format json \
             --out-file /tmp/infracost.json
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
 
       - name: Post Infracost comment on PR
-        uses: infracost/actions/comment@v3
-        with:
-          path: /tmp/infracost.json
-          behavior: update
+        run: |
+          infracost comment github \
+            --path=/tmp/infracost.json \
+            --repo=$GITHUB_REPOSITORY \
+            --github-token=${{ github.token }} \
+            --pull-request=${{ github.event.pull_request.number }} \
+            --behavior=update
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
