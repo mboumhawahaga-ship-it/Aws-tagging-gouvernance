@@ -1,6 +1,6 @@
 # ========================================
-# EXEMPLE D'UTILISATION DU MODULE
-# Environnement : DEV
+# EXAMPLE: MODULE USAGE
+# Environment: DEV
 # ========================================
 
 # Configuration du provider AWS
