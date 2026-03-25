@@ -193,6 +193,15 @@ aws-tagging-governance/
     ├── SECURITY.md          # Security best practices
     └── ENGINEERING_LOG.md   # Engineering / incident log
 ```
+## 🚨 Production Limitations
+
+**~10% des ressources AWS ne supportent pas les tags** :
+- IAM Groups/Roles → utiliser Organizations Tag Policies
+- CloudFormation Stacks → nommage convention + tags enfants
+- AWS Organizations → metadata dans Parameter Store
+
+**Ce projet couvre 85-90% des coûts** (EC2/RDS/S3/Lambda représentent 80%+ du spend).
+Pour 100% → combiner avec AWS Config Rules + Tag Policies.
 
 ---
 
