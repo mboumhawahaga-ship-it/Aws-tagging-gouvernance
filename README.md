@@ -7,6 +7,15 @@
 This project implements **end‑to‑end, automated tagging governance** on AWS to address this problem: IaC enforcement, auto‑cleanup of non‑compliant resources, FinOps metrics collection and cost visualization per team.
 
 ---
+## 🚨 Production Limitations
+
+**~10% of AWS resources do not support tags**:
+- IAM Groups/Roles → use Organizations Tag Policies
+- CloudFormation Stacks → naming conventions + child resource tags
+- AWS Organizations → store metadata in Parameter Store
+
+**This project covers 85–90% of total AWS costs** (EC2/RDS/S3/Lambda represent 80%+ of the spend).  
+To reach 100% → combine with AWS Config Rules + Tag Policies.
 
 ## What this project solves in practice
 
