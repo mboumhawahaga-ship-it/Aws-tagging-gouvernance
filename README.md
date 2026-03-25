@@ -2,6 +2,8 @@
 
 [![Quality & Security Check](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml/badge.svg)](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml)
 
+> **Built as a personal**: FinOps project to demonstrate real-world AWS cost governance. Inspired by Spotify's infrastructure culture and chaos engineering principles — designed from day one for production safety (DRY_RUN mode, 24h grace period).
+
 > **Business problem**: according to the Flexera State of the Cloud Report 2024, around **32% of global cloud spend is wasted** on under‑used, orphaned or untracked resources — largely because of missing tags to identify owners and associated costs. FinOps case studies (Duckbill Group, CloudQuery) show that organizations without enforced tagging policies typically have **~30% “unallocated” spend**. After implementing strict tagging + automation, this ratio often drops to **below 5%**.
 
 This project implements **end‑to‑end, automated tagging governance** on AWS to address this problem: IaC enforcement, auto‑cleanup of non‑compliant resources, FinOps metrics collection and cost visualization per team.
