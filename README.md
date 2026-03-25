@@ -119,7 +119,7 @@ docs-en-rewrite
 --
 ```bash
 # 1. Cloner le projet
-git clone git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
+git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
  
  main
 
