@@ -79,9 +79,9 @@ resource "aws_iam_role_policy" "lambda_policy" {
           "ce:GetTags"
         ]
         Resource = "*"
-# Note : ces actions AWS ne supportent pas les ARN spécifiques.
-# Cost Explorer, CloudWatch et les Describe imposent Resource = "*".
-# Risque limité car aucun droit de suppression dans cette politique
+        # Note : ces actions AWS ne supportent pas les ARN spécifiques.
+        # Cost Explorer, CloudWatch et les Describe imposent Resource = "*".
+        # Risque limité car aucun droit de suppression dans cette politique
       }
     ]
   })

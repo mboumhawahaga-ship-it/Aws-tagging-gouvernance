@@ -43,7 +43,21 @@ def lambda_handler(event, context):
 
     return {
         'statusCode': 200,
-        'body': json.dumps(global_results, default=str)
+        'body': json.dumps({
+            'ec2_scanned': global_results['ec2'].get('scanned', 0),
+            'ec2_non_compliant': global_results['ec2'].get('non_compliant', 0),
+            'ec2_deleted': global_results['ec2'].get('deleted', 0),
+            'ec2_in_grace_period': global_results['ec2'].get('in_grace_period', 0),
+            'rds_scanned': global_results['rds'].get('scanned', 0),
+            'rds_non_compliant': global_results['rds'].get('non_compliant', 0),
+            'rds_deleted': global_results['rds'].get('deleted', 0),
+            's3_scanned': global_results['s3'].get('scanned', 0),
+            's3_non_compliant': global_results['s3'].get('non_compliant', 0),
+            's3_deleted': global_results['s3'].get('deleted', 0),
+            'lambda_scanned': global_results['lambda'].get('scanned', 0),
+            'lambda_non_compliant': global_results['lambda'].get('non_compliant', 0),
+            'lambda_deleted': global_results['lambda'].get('deleted', 0),
+        }, default=str)
     }
 
 

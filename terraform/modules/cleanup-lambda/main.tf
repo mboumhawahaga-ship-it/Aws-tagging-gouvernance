@@ -14,7 +14,8 @@ data "aws_caller_identity" "current" {}
 # ========================================
 
 resource "aws_sns_topic" "cleanup_notifications" {
-  name = "${local.lambda_name}-notifications"
+  name              = "${local.lambda_name}-notifications"
+  kms_master_key_id = "alias/aws/sns"
 
   tags = {
     Name        = "${local.lambda_name}-notifications"
