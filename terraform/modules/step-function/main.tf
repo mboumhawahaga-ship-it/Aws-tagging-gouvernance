@@ -39,8 +39,8 @@ resource "aws_sfn_state_machine" "tagging_governance" {
     StartAt = "NotifyOwner"
     States = {
       NotifyOwner = {
-        Type     = "Task"
-        Resource = "arn:aws:states:::lambda:invoke"
+        Type       = "Task"
+        Resource   = "arn:aws:states:::lambda:invoke"
         Parameters = { FunctionName = var.notify_lambda_arn, "Payload.$" = "$" }
         ResultPath = "$.notify_result"
         Next       = "WaitGracePeriod"
@@ -51,8 +51,8 @@ resource "aws_sfn_state_machine" "tagging_governance" {
         Next    = "CheckCompliance"
       }
       CheckCompliance = {
-        Type     = "Task"
-        Resource = "arn:aws:states:::lambda:invoke"
+        Type       = "Task"
+        Resource   = "arn:aws:states:::lambda:invoke"
         Parameters = { FunctionName = var.check_lambda_arn, "Payload.$" = "$" }
         ResultPath = "$.check_result"
         Next       = "QuarantineResource"
