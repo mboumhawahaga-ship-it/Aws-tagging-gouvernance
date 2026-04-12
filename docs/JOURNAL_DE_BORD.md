@@ -18,6 +18,7 @@
 9. [Tests unitaires - Lambda cleanup (14/02/2026)](#tests-unitaires---lambda-cleanup-14022026)
 10. [Checklist de deploiement](#checklist-de-deploiement)
 11. [Ressources deployees](#ressources-deployees)
+12. [Refonte Architecture - Pipeline de gouvernance avec Step Functions (Today 12:04)](#refonte-architecture---pipeline-de-gouvernance-avec-step-functions-today-1204)
 
 ---
 
@@ -534,6 +535,89 @@ aws_region = "eu-west-1"
 > Utiliser `var.aws_region` + `data.aws_caller_identity.current.account_id` pour construire des ARNs
 > portables. Pour changer de region (ex: `us-east-1`), il suffit de modifier la valeur dans
 > le fichier d'environnement, sans toucher aux modules.
+
+---
+
+---
+
+## Refonte Architecture - Pipeline de gouvernance avec Step Functions (Today 12:04)
+
+| | |
+|---|---|
+| **Date** | Aujourd'hui à 12h04 |
+| **Type** | Refonte majeure + nouvelle implémentation |
+| **Branches** | `main` |
+
+### Contexte et déclencheur
+
+Retour de mentor : **on ne supprime jamais automatiquement des ressources en entreprise.**
+L'ancienne Lambda cleanup supprimait après 24h de grace period — trop risqué en prod.
+Un dev qui crée une RDS en urgence un vendredi soir sans tags = base supprimée à 2h du matin.
+
+### Décisions d'architecture prises
+
+| Ressource | Ancienne approche | Nouvelle approche |
+|-----------|-------------------|-------------------|
+| EC2 | Terminate après 24h | Stop J+0 → Terminate J+4 après 2 notifications |
+| RDS | Delete (SkipFinalSnapshot=True) | Snapshot + Stop J+0 → Delete avec snapshot final J+4 |
+| S3 | Delete bucket + objets | Bloquer accès public + activer versioning — jamais supprimé auto |
+| Lambda | Delete après 24h | Concurrency=0 (freeze) J+0 → Delete J+4 |
+| Sans tag Owner | Suppression silencieuse | Pause immédiate + notification admin, décision humaine |
+
+### Nouvelle architecture : 3 Lambdas + 1 Step Function
+
+```
+EventBridge (cron 2h)
+        ↓
+  Lambda scanner        → détecte non-conformes, lance 1 Step Function par ressource
+        ↓
+  Step Functions
+        ↓
+  Lambda controller     → evaluate | check_compliance | notify (J0 / J2 / FAILURE)
+  Lambda executor       → freeze | resume | delete par type de ressource
+```
+
+**Flow de la state machine :**
+```
+EvaluateResource → FreezeResource → NotifyJ0 → Wait 48h
+  → CheckCompliance J+2
+      → conforme  : ResumeResource → Done
+      → non conforme : NotifyJ2 → Wait 48h
+          → CheckCompliance J+4
+              → conforme  : ResumeResource → Done
+              → non conforme : DeleteResource → Done
+  → erreur n'importe où : NotifyFailure → Failed
+```
+
+### Lambda Powertools ajouté sur les 3 Lambdas
+
+Raison : débugger une Step Functions sans logs structurés c'est impossible.
+
+- `Logger` → chaque log contient `resource_id`, `action`, `dry_run`, `step`
+- `Tracer` → X-Ray trace chaque appel AWS API, on voit quelle étape a pris du temps ou échoué
+- `Metrics` → métriques CloudWatch auto : `FreezeEC2`, `DeleteRDS`, `TagsCorrectedByOwner`, etc.
+
+### Fichiers créés
+
+```
+lambda/scanner/handler.py       → détection + lancement Step Function
+lambda/controller/handler.py    → logique de décision + notifications
+lambda/executor/handler.py      → actions freeze/resume/delete
+terraform/modules/step-function/state_machine.asl.json
+```
+
+### Best practice notée - Correction de tags en cours de pipeline
+
+> Si un owner corrige ses tags **pendant** le pipeline (entre J+0 et J+2, ou entre J+2 et J+4),
+> le `CheckCompliance` détecte la conformité → `ResumeResource` remet la ressource en marche
+> automatiquement → `Done`.
+> La Step Function se termine proprement sans suppression.
+> C'est le comportement attendu : **récompenser la correction rapide**.
+
+### Règle à retenir
+> En entreprise, une automation qui supprime sans validation humaine est un risque opérationnel majeur.
+> Le bon pattern : **alerter → geler → laisser du temps → supprimer en dernier recours**.
+> Step Functions est l'outil idéal pour ce type de pipeline d'escalade avec délais et gestion d'erreurs.
 
 ---
 
