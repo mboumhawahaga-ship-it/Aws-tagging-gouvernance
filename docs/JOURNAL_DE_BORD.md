@@ -19,6 +19,7 @@
 10. [Checklist de deploiement](#checklist-de-deploiement)
 11. [Ressources deployees](#ressources-deployees)
 12. [Refonte Architecture - Pipeline de gouvernance avec Step Functions (Today 12:04)](#refonte-architecture---pipeline-de-gouvernance-avec-step-functions-today-1204)
+13. [TODO - Prochaine étape : Tests en prod](#todo---prochaine-étape--tests-en-prod)
 
 ---
 
@@ -618,6 +619,71 @@ terraform/modules/step-function/state_machine.asl.json
 > En entreprise, une automation qui supprime sans validation humaine est un risque opérationnel majeur.
 > Le bon pattern : **alerter → geler → laisser du temps → supprimer en dernier recours**.
 > Step Functions est l'outil idéal pour ce type de pipeline d'escalade avec délais et gestion d'erreurs.
+
+---
+
+## TODO - Prochaine étape : Tests en prod
+
+| | |
+|---|---|
+| **Statut** | 🔴 À faire |
+| **Priorité** | Haute — c'est la seule étape restante |
+
+### Ce qui est terminé ✅
+
+- Module `tagged-resources` — enforcement tags Terraform
+- Lambda `metrics` — CloudWatch + Cost Explorer
+- Grafana dashboard
+- CI/CD GitHub Actions (flake8 + terraform fmt/validate + infracost)
+- Tests unitaires (pytest + moto) — 12/12 PASSED
+- Sécurité hardening (S3 public block, SNS KMS, IAM least privilege)
+- State machine ASL — flow complet J0/J2/J4
+- Lambda `scanner` — détection + lancement Step Function par ressource
+- Lambda `controller` — evaluate/check/notify avec Powertools + Slack
+- Lambda `executor` — freeze/resume/delete avec Powertools
+- Module Terraform `governance-pipeline` — IAM least privilege, 3 Lambdas, Step Functions, EventBridge
+- Environnement `prod/` créé (`dry_run=true`)
+- README mis à jour avec diagrammes Mermaid
+- Historique git nettoyé (Account ID supprimé)
+
+### Ce qu'il reste à faire 🔴
+
+**1. Configurer le webhook Slack**
+- Aller sur [api.slack.com/apps](https://api.slack.com/apps)
+- Créer une app → Incoming Webhooks → copier l'URL
+- Stocker dans Secrets Manager via Terraform
+
+**2. Déployer en prod**
+```bash
+cd terraform/environments/prod
+cp terraform.tfvars.example terraform.tfvars
+# Remplir notification_email + slack_webhook_url
+terraform init
+terraform plan
+terraform apply
+```
+
+**3. Déclencher un test manuel**
+- Créer une ressource sans tags (ex: bucket S3)
+- Invoquer le scanner manuellement :
+```bash
+aws lambda invoke \
+  --function-name prod-governance-scanner \
+  --payload '{}' \
+  output.json && cat output.json
+```
+- Vérifier dans la console Step Functions que l'exécution démarre
+- Vérifier que Slack reçoit la notification J+0
+- Ajouter les tags manquants → vérifier que le pipeline détecte la correction et resume
+
+**4. Valider le DRY_RUN**
+- Confirmer qu'aucune ressource n'est supprimée pendant les tests
+- Une fois validé → passer `dry_run = false` en prod
+
+### Règle à retenir
+> Toujours tester en DRY_RUN avant de passer en mode réel.
+> Le pipeline est conçu pour ça : observer le comportement complet
+> sans risque, puis activer les actions réelles une fois confiant.
 
 ---
 
