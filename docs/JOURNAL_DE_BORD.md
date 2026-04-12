@@ -1,7 +1,7 @@
 # Journal de Bord - AWS Tagging Governance
 
 > Carnet de laboratoire AWS - Erreurs rencontrées, solutions appliquées et lecons retenues.
-> Date : 12 Fevrier 2026 | Region : eu-west-1 (Ireland) | Compte : ACCOUNT_ID
+> Date : 12 Fevrier 2026 | Region : eu-west-1 (Ireland) | Compte : 123456789012
 
 ---
 
@@ -63,14 +63,14 @@ resource_name = "data-lake"      # "dev-data-lake" deja pris mondialement
 
 ### Apres (OK)
 ```hcl
-resource_name = "data-lake-ACCOUNT_ID"  # Ajout de l'Account ID = unique
+resource_name = "data-lake-123456789012"  # Ajout de l'Account ID = unique
 ```
 
 ### Regle a retenir
 > Les buckets S3 ont un namespace **GLOBAL**. Deux comptes AWS ne peuvent pas avoir le meme nom de bucket.
 >
 > Strategies pour noms uniques :
-> - Ajouter l'Account ID : `mon-bucket-ACCOUNT_ID`
+> - Ajouter l'Account ID : `mon-bucket-123456789012`
 > - Ajouter un hash aleatoire : `mon-bucket-a3f8c2`
 > - Ajouter le nom de l'entreprise : `entreprise-mon-bucket-dev`
 >
@@ -387,9 +387,9 @@ Avant chaque `terraform apply`, verifier :
 
 | Ressource | Type | ID | Tags Owner |
 |-----------|------|----|------------|
-| dev-web-server | EC2 (t3.micro) | `i-0xxxxxxxxxxxxx` | jean.dupont@entreprise.com |
+| dev-web-server | EC2 (t3.micro) | `i-0123456789abcdef0` | jean.dupont@entreprise.com |
 | dev-analytics-db | RDS PostgreSQL (db.t3.micro) | `db-XXXXXXXXXXXXXXXXXXXXXXXXXXXX` | marie.martin@entreprise.com |
-| dev-data-lake-ACCOUNT_ID | S3 Bucket | `dev-data-lake-ACCOUNT_ID` | paul.durand@entreprise.com |
+| dev-data-lake-123456789012 | S3 Bucket | `dev-data-lake-123456789012` | paul.durand@entreprise.com |
 | dev-data-processor | Lambda (Python 3.11) | `dev-data-processor` | sophie.leblanc@entreprise.com |
 | dev-tag-cleanup | Lambda (Python 3.11) | `dev-tag-cleanup` | CloudGovernance |
 
@@ -397,8 +397,8 @@ Avant chaque `terraform apply`, verifier :
 
 | Service | Endpoint |
 |---------|----------|
-| EC2 (IP publique) | `EC2_PUBLIC_IP` |
-| RDS PostgreSQL | `dev-analytics-db.RDS_ENDPOINT_ID.eu-west-1.rds.amazonaws.com:5432` |
+| EC2 (IP publique) | `203.0.113.42` |
+| RDS PostgreSQL | `dev-analytics-db.xxxxxxxxxxxx.eu-west-1.rds.amazonaws.com:5432` |
 | Cleanup Lambda | Cron tous les jours a 2h UTC (`cron(0 2 * * ? *)`) |
 | Mode cleanup | `DRY_RUN` (simulation, aucune suppression reelle) |
 
@@ -422,6 +422,118 @@ terraform destroy -auto-approve
 | Provider time | 0.13.1 | Timestamps stables |
 | Provider random | 3.8.1 | Generation de mots de passe |
 | Provider archive | 2.7.1 | Creation de ZIP pour Lambda |
+
+---
+
+---
+
+## Amelioration #4 - Ajout module EventBridge + Step Function (08/04/2026)
+
+| | |
+|---|---|
+| **Modules crees** | `terraform/modules/eventbridge/`, `terraform/modules/step-function/` |
+| **Fichier env** | `terraform/environments/dev/governance.tf` |
+
+### Ce qui a ete fait
+
+**Module `step-function`** : orchestre la remediation en 4 etats :
+```
+NotifyOwner → WaitGracePeriod (24h) → CheckCompliance → QuarantineResource
+```
+Action finale : STOP de l'instance uniquement, pas de suppression.
+
+**Module `eventbridge`** : ecoute les evenements AWS Config et declenche la Step Function :
+```json
+{
+  "source": ["aws.config"],
+  "detail-type": ["Config Rules Compliance Change"],
+  "detail": { "newEvaluationResult": { "complianceType": ["NON_COMPLIANT"] } }
+}
+```
+
+### Erreur rencontree - variable `max_budget` inconnue
+
+| | |
+|---|---|
+| **Erreur** | `An argument named "max_budget" is not expected here` |
+| **Cause** | `max_budget = 100` ajoute dans `governance.tf` mais variable absente du module `step-function` |
+| **Fichiers** | `terraform/modules/step-function/variables.tf` + `main.tf` |
+
+### Solution
+
+Ajouter la variable dans le module et la transmettre en payload a la Lambda de quarantaine :
+
+```hcl
+# variables.tf
+variable "max_budget" {
+  description = "Seuil budgetaire mensuel en USD transmis a la Lambda de quarantaine"
+  type        = number
+  default     = 100
+}
+```
+
+```hcl
+# main.tf - etat QuarantineResource
+Parameters = {
+  FunctionName = var.quarantine_lambda_arn
+  Payload = {
+    "input.$"    = "$"
+    "max_budget" = var.max_budget
+    "dry_run"    = var.dry_run
+  }
+}
+```
+
+La logique de comparaison (coût > max_budget → quarantaine) reste dans la Lambda via `event["max_budget"]`.
+
+### Regle a retenir
+> Terraform ne peut pas evaluer des valeurs runtime (couts AWS en temps reel) dans une definition Step Function.
+> La bonne pratique : passer le seuil comme parametre au payload Lambda, qui applique la logique conditionnelle.
+
+---
+
+## Amelioration #5 - Regionalisation des ARNs IAM (08/04/2026)
+
+| | |
+|---|---|
+| **Probleme** | Les ARNs dans les politiques IAM etaient construits avec une region codee en dur ou absente, rendant les modules non portables entre regions. |
+| **Fichiers modifies** | `modules/cleanup-lambda/variables.tf`, `modules/cleanup-lambda/main.tf`, `modules/metrics-lambda/variables.tf`, `environments/dev/cleanup-lambda.tf`, `environments/dev/metrics-lambda.tf` |
+
+### Ce qui a ete fait
+
+Ajout d'une variable `aws_region` dans les deux modules Lambda :
+
+```hcl
+variable "aws_region" {
+  description = "Région AWS de déploiement"
+  type        = string
+  default     = "eu-west-1"
+}
+```
+
+Les ARNs dans la politique IAM du module `cleanup-lambda` utilisent maintenant `var.aws_region` :
+
+```hcl
+Resource = [
+  "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+  "arn:aws:rds:${var.aws_region}:${data.aws_caller_identity.current.account_id}:db:*",
+  "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:function:*",
+  "arn:aws:sns:${var.aws_region}:${data.aws_caller_identity.current.account_id}:..."
+]
+```
+
+La valeur est passee explicitement dans les environnements :
+
+```hcl
+# cleanup-lambda.tf et metrics-lambda.tf
+aws_region = "eu-west-1"
+```
+
+### Regle a retenir
+> Ne jamais coder une region en dur dans un ARN IAM.
+> Utiliser `var.aws_region` + `data.aws_caller_identity.current.account_id` pour construire des ARNs
+> portables. Pour changer de region (ex: `us-east-1`), il suffit de modifier la valeur dans
+> le fichier d'environnement, sans toucher aux modules.
 
 ---
 
