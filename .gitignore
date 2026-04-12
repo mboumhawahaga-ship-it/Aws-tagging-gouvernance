@@ -36,11 +36,13 @@ nul
 # Secrets
 *.pem
 *.key
-.env
 credentials.json
 secrets.yaml
+config/.env
+!config/.env.example
+
+# Legacy (renamed to config/)
 sensible/.env
-!sensible/.env.example
 
 # Claude Code
 .claude/

@@ -35,3 +35,10 @@ variable "log_retention_days" {
   type        = number
   default     = 30
 }
+
+variable "slack_webhook_url" {
+  description = "URL du webhook Slack pour les notifications (stockée dans Secrets Manager)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

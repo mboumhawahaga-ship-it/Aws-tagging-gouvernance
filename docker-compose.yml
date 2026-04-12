@@ -5,7 +5,7 @@ services:
     image: grafana/grafana:11.4.0
     container_name: aws-tagging-grafana
     env_file:
-      - ./.env
+      - ./config/.env
     ports:
       - "3000:3000"
     environment:

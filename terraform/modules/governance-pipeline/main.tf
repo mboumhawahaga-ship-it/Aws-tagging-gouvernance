@@ -13,6 +13,25 @@ locals {
 data "aws_caller_identity" "current" {}
 
 # ========================================
+# SECRETS MANAGER — Slack webhook
+# ========================================
+
+resource "aws_secretsmanager_secret" "slack_webhook" {
+  count       = var.slack_webhook_url != "" ? 1 : 0
+  name        = "${local.prefix}-slack-webhook"
+  description = "Slack webhook URL pour les notifications de gouvernance"
+  tags        = local.common_tags
+}
+
+resource "aws_secretsmanager_secret_version" "slack_webhook" {
+  count     = var.slack_webhook_url != "" ? 1 : 0
+  secret_id = aws_secretsmanager_secret.slack_webhook[0].id
+  secret_string = jsonencode({
+    webhook_url = var.slack_webhook_url
+  })
+}
+
+# ========================================
 # SNS TOPIC — notifications admin
 # ========================================
 
@@ -176,6 +195,15 @@ resource "aws_iam_role_policy" "controller" {
         Effect   = "Allow"
         Action   = ["sns:Publish"]
         Resource = aws_sns_topic.governance.arn
+      },
+      {
+        # Slack webhook depuis Secrets Manager — restreint au secret de gouvernance
+        Sid    = "ReadSlackSecret"
+        Effect = "Allow"
+        Action = ["secretsmanager:GetSecretValue"]
+        Resource = var.slack_webhook_url != "" ? [
+          aws_secretsmanager_secret.slack_webhook[0].arn
+        ] : ["arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:none"]
       },
       {
         Sid      = "XRayTracing"
@@ -352,6 +380,7 @@ resource "aws_lambda_function" "controller" {
     variables = {
       SNS_TOPIC_ARN           = aws_sns_topic.governance.arn
       ADMIN_EMAIL             = var.admin_email
+      SLACK_SECRET_NAME       = var.slack_webhook_url != "" ? aws_secretsmanager_secret.slack_webhook[0].name : ""
       POWERTOOLS_SERVICE_NAME = "${local.prefix}-controller"
       LOG_LEVEL               = "INFO"
     }

@@ -210,8 +210,8 @@ aws-tagging-governance/
 git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
 
 # 2. Configure AWS credentials
-cp sensible/.env.example sensible/.env
-# Edit sensible/.env with your AWS credentials
+cp config/.env.example config/.env
+# Edit config/.env with your AWS credentials
 
 # 3. Deploy infrastructure
 cd terraform/environments/dev
