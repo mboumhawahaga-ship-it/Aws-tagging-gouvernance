@@ -1,167 +1,168 @@
 # AWS Tagging Governance
 
 [![Quality & Security Check](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml/badge.svg)](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml)
+[![Infracost](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-infracost.yml/badge.svg)](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-infracost.yml)
 
-> **Business problem**: according to the Flexera State of the Cloud Report 2024, around **32% of global cloud spend is wasted** on under‑used, orphaned or untracked resources — largely because of missing tags to identify owners and associated costs. FinOps case studies (Duckbill Group, CloudQuery) show that organizations without enforced tagging policies typically have **~30% “unallocated” spend**. After implementing strict tagging + automation, this ratio often drops to **below 5%**.
+> According to the **Flexera State of the Cloud Report 2024**, ~**32% of global cloud spend is wasted** on orphaned or untracked resources — largely because of missing tags.
+> Organizations without enforced tagging typically have **~30% unallocated spend**. After implementing strict tagging + automation, this drops to **below 5%**.
 
-This project implements **end‑to‑end, automated tagging governance** on AWS to address this problem: IaC enforcement, auto‑cleanup of non‑compliant resources, FinOps metrics collection and cost visualization per team.
+This project implements **end-to-end automated tagging governance** on AWS: IaC enforcement, an intelligent escalation pipeline, FinOps metrics and cost visualization per team.
 
 ---
 
-## What this project solves in practice
+## Why not just use AWS Tag Policies + SCP?
 
-| Problem without tagging | Implemented solution |
-|---|---|
-| Costs can’t be allocated per team | `Squad` + `CostCenter` tags enforced at creation time |
-| Zombie resources nobody can identify | Cleanup Lambda + 24h grace period + SNS report |
-| No visibility on waste | Grafana dashboard: compliance, costs per squad, AutoShutdown savings |
-| Dev environments running all night | `AutoShutdown: true` tag → estimated savings (~$48/month on a dev env) |
-| RDS secrets stored in plain text in state | AWS Secrets Manager + automatic rotation |
+| Capability | Tag Policies | SCP | This project |
+|---|---|---|---|
+| Enforce tag format | ✅ | ✅ | ✅ Terraform validation |
+| Block creation without tags | ❌ | ✅ partial | ✅ Terraform |
+| Handle **already existing** resources | ❌ | ❌ | ✅ Scanner Lambda |
+| Escalation pipeline J0 → J2 → J4 | ❌ | ❌ | ✅ Step Functions |
+| RDS snapshot before any action | ❌ | ❌ | ✅ Executor Lambda |
+| Slack + SNS targeted notification | ❌ | ❌ | ✅ Controller Lambda |
+| FinOps metrics + Grafana dashboard | ❌ | ❌ | ✅ Metrics Lambda |
+| Works **without AWS Organizations** | ✅ | ❌ | ✅ |
+
+Tag Policies + SCP = prevention at creation for large enterprises with Organizations.
+**This project = complete governance** for any team, managing both new and existing resources.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        GitHub Actions CI                        │
-│           flake8 · terraform fmt · terraform validate           │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────────┐
-│                   Terraform (IaC)                               │
-│   modules/tagged-resources · cleanup-lambda · metrics-lambda    │
-└──────┬──────────────────┬──────────────────┬────────────────────┘
-       │                  │                  │
-  ┌────▼────┐        ┌────▼────┐       ┌────▼──────┐
-  │   EC2   │        │   RDS   │       │  S3 · λ   │
-  │  tags   │        │  tags + │       │   tags    │
-  │enforced │        │Secrets  │       │ enforced  │
-  └─────────┘        │Manager  │       └───────────┘
-                     └─────────┘
-                          │
-         ┌────────────────┼─────────────────┐
-         │                │                 │
-  ┌──────▼──────┐  ┌──────▼──────┐  ┌──────▼──────┐
-  │   Lambda    │  │   Lambda    │  │ EventBridge │
-  │   cleanup   │  │   metrics   │  │  cron 2h/6h │
-  │ DRY_RUN=true│  │every 6h    │  └─────────────┘
-  │ grace: 24h  │  └──────┬──────┘
-  └──────┬──────┘         │
-         │          ┌─────▼──────────────────┐
-         │          │      CloudWatch         │
-         │          │ TagCompliance · Costs   │
-         │          └─────┬──────────────────┘
-         │                │
-  ┌──────▼────────────────▼──────┐
-  │         Grafana              │
-  │  compliance · costs/squad    │
-  │  AutoShutdown savings        │
-  └──────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        GitHub Actions CI                         │
+│         flake8 · terraform fmt · terraform validate · infracost  │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+┌──────────────────────────────▼───────────────────────────────────┐
+│                        Terraform (IaC)                           │
+│  tagged-resources · governance-pipeline · metrics-lambda         │
+└───────┬──────────────────────┬───────────────────────────────────┘
+        │                      │
+┌───────▼───────┐    ┌─────────▼──────────────────────────────────┐
+│  AWS Resources│    │           Governance Pipeline               │
+│  EC2 · RDS    │    │                                             │
+│  S3  · Lambda │    │  EventBridge cron 2h                        │
+│  tags enforced│    │       ↓                                     │
+│  KMS · Secrets│    │  Lambda Scanner                             │
+│  Manager      │    │  (detects non-compliant resources)          │
+└───────────────┘    │       ↓  1 execution per resource           │
+                     │  Step Functions State Machine               │
+                     │  ├─ Controller (evaluate/notify/check)      │
+                     │  └─ Executor   (freeze/resume/delete)       │
+                     │       ↓                                     │
+                     │  SNS email + Slack notification             │
+                     └─────────────────────────────────────────────┘
+                               │
+┌──────────────────────────────▼───────────────────────────────────┐
+│                    Lambda Metrics (every 6h)                     │
+│              CloudWatch · Cost Explorer API                      │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+┌──────────────────────────────▼───────────────────────────────────┐
+│                         Grafana Dashboard                        │
+│          compliance rate · costs/squad · AutoShutdown savings    │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Governance pipeline — the thinking behind it
+
+> **Why not just delete automatically?**
+> A dev creates an RDS on a Friday night for an incident — no time for tags.
+> An auto-delete at 2 AM = data loss. That's a production incident.
+> The right pattern: **alert → freeze → give time → delete as last resort.**
+
+```mermaid
+flowchart TD
+    A([EventBridge\ncron 2h]) --> B[Lambda Scanner\nscans EC2 · RDS · S3 · Lambda]
+    B --> C{Non-compliant\nresource?}
+    C -- No --> Z([Done])
+    C -- Yes --> D[Start Step Functions\n1 execution per resource]
+
+    D --> E[Controller: Evaluate\nhas Owner tag?]
+    E --> F[Executor: Freeze\nEC2 stop · RDS snapshot+stop\nS3 block public · Lambda concurrency=0]
+    F --> G[Controller: Notify J+0\nSlack + SNS email]
+    G --> H[Wait 48h]
+
+    H --> I[Controller: Check compliance\ntags corrected?]
+    I -- Yes --> J[Executor: Resume\nrestart resource automatically]
+    J --> Z
+
+    I -- No --> K[Controller: Notify J+2\nReminder — 48h left]
+    K --> L[Wait 48h]
+
+    L --> M[Controller: Check compliance]
+    M -- Yes --> J
+    M -- No --> N[Executor: Delete\nEC2 terminate · RDS final snapshot+delete\nLambda delete · S3 never deleted]
+    N --> Z
+
+    style F fill:#FFA500,color:#000
+    style G fill:#FFA500,color:#000
+    style K fill:#FF4500,color:#fff
+    style N fill:#CC0000,color:#fff
+    style J fill:#36A64F,color:#fff
 ```
 
 ---
 
 ## Mandatory tags
 
-All AWS resources **must** have these tags — Terraform rejects creation if one is missing or empty.
+All AWS resources **must** have these tags — Terraform rejects creation if one is missing.
 
 | Tag | Validation | Example | FinOps impact |
 |-----|------------|---------|---------------|
 | `Owner` | email regex `@company.com` | `john.doe@company.com` | Clear accountability |
-| `Squad` | non‑empty | `Data`, `Backend`, `DevOps` | Team‑level chargeback |
-| `CostCenter` | non‑empty | `CC-123` | Financial showback |
+| `Squad` | non-empty | `Data`, `Backend`, `DevOps` | Team-level chargeback |
+| `CostCenter` | non-empty | `CC-123` | Financial showback |
 | `AutoShutdown` | boolean | `true` / `false` | ~50% savings on dev envs |
-| `Environment` | `dev`/`staging`/`prod` | `dev` | Cost separation per environment |
+| `Environment` | `dev`/`staging`/`prod` | `prod` | Cost separation per env |
 
-**Automatic tags**: `ManagedBy: Terraform` · `CreatedAt: <stable timestamp>`
+**Automatic tags**: `ManagedBy: Terraform` · `CreatedAt: <stable timestamp via time_static>`
+
+---
+
+## What happens per resource type
+
+| Resource | Freeze (J+0) | Resume (if fixed) | Delete (J+4) |
+|---|---|---|---|
+| EC2 | `stop_instances` | `start_instances` | `terminate_instances` |
+| RDS | snapshot + `stop_db_instance` | `start_db_instance` | final snapshot + `delete_db_instance` |
+| S3 | block public access + enable versioning | — | **never deleted automatically** |
+| Lambda | `concurrency = 0` | `delete_concurrency` | `delete_function` |
 
 ---
 
 ## FinOps features
 
-### 1. Strict enforcement at creation (Terraform)
-- Regex validation on `Owner` (email `@company.com`)
-- Deployment is rejected if any tag is missing or the environment is invalid
-- Encryption on by default for RDS (KMS) and S3 (AES‑256)
-- RDS password randomly generated (32 chars) → stored in Secrets Manager
+**1. Enforcement at creation (Terraform)**
+- Regex validation on `Owner` — rejects deployment if any tag is missing
+- Encryption by default: RDS (KMS) + S3 (AES-256)
+- RDS password auto-generated (32 chars) → stored in Secrets Manager
 
-### 2. Auto‑cleanup of non‑compliant resources (Lambda)
-- Scans EC2, RDS, S3, Lambda every night at 2 AM (EventBridge)
-- **24h grace period** before actually acting (protects against false positives)
-- **`DRY_RUN=true` mode by default** — simulation with no real deletions
-- Detailed report sent via SNS after each run
+**2. Governance pipeline (Step Functions + 3 Lambdas)**
+- `scanner` — detects non-compliant resources, launches 1 Step Function per resource
+- `controller` — evaluates, checks compliance, sends Slack + SNS notifications
+- `executor` — freeze / resume / delete with `DRY_RUN=true` by default
+- Retry (3x backoff) + Catch on every state → `NotifyFailure` if pipeline errors
+- Lambda Powertools on all 3: structured logs, X-Ray tracing, CloudWatch metrics
 
-### 3. Real‑time FinOps metrics (Lambda + CloudWatch)
+**3. Real-time FinOps metrics (Lambda + CloudWatch)**
 - Global tag compliance rate (namespace `TagCompliance`)
 - Spend per `Squad` and `CostCenter` via Cost Explorer API
-- Estimated savings from the `AutoShutdown` tag
+- Estimated savings from `AutoShutdown` tag
 - Top 10 most expensive AWS services
-- Automatic execution every 6 hours
+- Runs every 6 hours via EventBridge
 
-### 4. Grafana dashboard
-- Total monthly cost for the current month
+**4. Grafana dashboard**
+- Total monthly cost for current month
 - Tag compliance gauge (target: > 95%)
 - Cost breakdown by Squad (donut chart)
-- 30‑day cost evolution (time series)
-- Non‑compliant resources with colored background (red if > 5)
-
-docs-en-rewrite
---
-```bash
-# 1. Cloner le projet
-git clone git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
- 
- main
-
-## Results on demo environment
-
-These numbers are generated by `scripts/publish_mock_metrics.py` on a simulated environment representative of a 3–5‑developer team.
-
-| Metric | Value |
-|--------|-------|
-| Resources scanned | 24 |
-| Initial compliance rate (before project) | ~30% (industry estimate) |
-| Target compliance rate | > 95% |
-| Total monthly cost (dev env) | ~$971 |
-| Estimated savings via AutoShutdown | **~$48/month** |
-| “Unallocated” costs after tagging | < 5% |
-
-> **Industry reference**: Flexera 2024 — 32% of cloud spend wasted on untracked resources. Mature organizations reach 85–95% “taggable” spend. Source: [Flexera State of the Cloud 2024](https://info.flexera.com/CM-RESEARCH-State-of-the-Cloud-Report)
-
----
-
-## Financial impact / ROI (estimates)
-
-The goal of this project is **not** to promise exact savings, but to provide a realistic mechanism to reduce the kind of waste highlighted by Flexera and FinOps case studies.
-
-- Flexera 2024 reports **~32% of cloud spend is wasted** on under‑used or untracked resources.
-- In many organizations, **~30% of spend is “unallocated”** (no clear owner or cost center).
-- With strict tagging + automation, that “unallocated” share often drops to **< 5%**.
-
-In the **demo dev environment** simulated here (~$971/month):
-
-- If we apply the Flexera 32% waste ratio as an upper bound, that would mean **up to ~$310/month of potential waste**.
-- The current AutoShutdown logic alone estimates **~$48/month** in savings for a small 3–5‑developer team — roughly **5% of the total dev bill**.
-- As environments grow (more squads, more projects), the same mechanisms (tag enforcement, nightly cleanup, AutoShutdown) tend to scale almost linearly with usage, while operational overhead stays low (Lambdas + Terraform).
-
-These numbers are **illustrative only** and based on:
-
-- a typical development account with a handful of EC2/RDS/S3/Lambda resources,
-- conservative assumptions on instance types and schedules,
-- public industry benchmarks (Flexera, FinOps case studies).
-
-In a real organization, the exact ROI will depend on:
-
-- how aggressively you enable AutoShutdown and cleanup outside of production,
-- how disciplined teams are at tagging new resources,
-- how much existing “zombie” infrastructure is present when you roll this out.
-
-The project is designed so that:
-
-- you can start in **safe mode** (`DRY_RUN=true`, 24h grace period, dev‑only),
-- measure impact via CloudWatch/Grafana,
-- then gradually extend to more environments as you gain confidence.
+- 30-day cost evolution (time series)
+- Non-compliant resources highlighted in red if > 5
 
 ---
 
@@ -170,28 +171,34 @@ The project is designed so that:
 ```
 aws-tagging-governance/
 ├── .github/workflows/
-│   └── ci-quality.yml              # CI: Flake8 + terraform fmt/validate
+│   ├── ci-quality.yml              # Flake8 + terraform fmt/validate
+│   └── ci-infracost.yml            # Cost estimation on PRs
 ├── terraform/
 │   ├── modules/
-│   │   ├── tagged-resources/       # Core module — tag enforcement
-│   │   ├── cleanup-lambda/         # Auto‑cleanup Lambda module
-│   │   └── metrics-lambda/         # CloudWatch metrics Lambda module
+│   │   ├── tagged-resources/       # Tag enforcement — EC2, RDS, S3, Lambda
+│   │   ├── governance-pipeline/    # Scanner + Controller + Executor + Step Functions
+│   │   ├── metrics-lambda/         # CloudWatch metrics + Cost Explorer
+│   │   └── cleanup-lambda/         # Legacy cleanup (kept for reference)
 │   └── environments/
-│       └── dev/                    # Demo environment
+│       ├── dev/                    # Dev environment
+│       └── prod/                   # Production environment (dry_run=true)
 ├── lambda/
-│   ├── cleanup/                    # Auto‑cleanup + unit tests (moto)
-│   └── metrics/                    # Metrics collection + Cost Explorer
+│   ├── scanner/                    # Detects non-compliant resources
+│   ├── controller/                 # Evaluate · notify · check compliance
+│   ├── executor/                   # Freeze · resume · delete
+│   ├── metrics/                    # FinOps metrics collection
+│   └── cleanup/                    # Legacy + unit tests (moto)
 ├── grafana/
 │   ├── dashboards/                 # Dashboard JSON (CloudWatch datasource)
-│   └── provisioning/               # Auto‑configured CloudWatch datasource
+│   └── provisioning/               # Auto-configured datasource
 ├── scripts/
-│   ├── publish_mock_metrics.py     # Feeds the dashboard for demos
+│   ├── publish_mock_metrics.py     # Feeds dashboard for demos
 │   ├── validate-tags.sh            # Manual tag validation
 │   └── setup-cost-explorer.ps1     # Cost Allocation Tags activation
 └── docs/
-    ├── GETTING_STARTED.md   # Getting started guide
-    ├── SECURITY.md          # Security best practices
-    └── ENGINEERING_LOG.md   # Engineering / incident log
+    ├── GUIDE_DEMARRAGE.md          # Getting started guide
+    ├── SECURITY.md                 # Security best practices
+    └── JOURNAL_DE_BORD.md          # Engineering log — errors & solutions
 ```
 
 ---
@@ -204,18 +211,18 @@ git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
 
 # 2. Configure AWS credentials
 cp sensible/.env.example sensible/.env
-# Edit sensible/.env with your credentials
+# Edit sensible/.env with your AWS credentials
 
-# 3. Deploy the infrastructure
+# 3. Deploy infrastructure
 cd terraform/environments/dev
 terraform init
 terraform plan
 terraform apply
 
-# 4. Launch the Grafana dashboard (local demo)
+# 4. Launch Grafana dashboard (local demo)
 cd ../../..
 docker-compose up -d
-python scripts/publish_mock_metrics.py  # Feed with realistic demo data
+python scripts/publish_mock_metrics.py
 # → http://localhost:3000
 ```
 
@@ -230,9 +237,10 @@ pip install pytest moto boto3
 pytest test_handler.py -v
 
 # Terraform validation
+cd terraform/environments/dev
 terraform validate
 
-# Tag validation on existing resources
+# Manual tag validation on existing resources
 bash scripts/validate-tags.sh
 ```
 
@@ -242,22 +250,31 @@ bash scripts/validate-tags.sh
 
 | Decision | Rationale |
 |----------|-----------|
-| `DRY_RUN=true` by default | Avoids any accidental deletion during first rollout |
-| 24h grace period | Protects legitimate resources created recently |
-| `time_static` for `CreatedAt` | Stable tag across re‑creations (no noisy Terraform diffs) |
-| `arm64` for Lambdas | ~20% cheaper than x86 on AWS Graviton |
-| S3 Intelligent‑Tiering | Automatic archiving after 90 days → lower storage costs |
+| Step Functions for escalation | Native wait states, retry/catch, full execution history in console |
+| `DRY_RUN=true` by default | Zero risk during first rollout — observe before acting |
+| 48h grace periods (x2) | Realistic time for a dev to fix tags before deletion |
+| S3 never auto-deleted | A bucket can hold data from multiple teams — human decision required |
+| RDS always snapshot before delete | Data safety — final snapshot kept even after deletion |
+| Lambda Powertools | Structured logs + X-Ray tracing + CloudWatch metrics on all 3 Lambdas |
+| Slack webhook via Secrets Manager | Webhook URL never exposed in env vars or Terraform state |
+| `arm64` for all Lambdas | ~20% cheaper than x86 on AWS Graviton |
+| `time_static` for `CreatedAt` | Stable tag — no noisy Terraform diffs on every plan |
 | Secrets Manager for RDS | Zero secrets in Terraform state or environment variables |
 
 ---
 
-## Next steps
+## Results on demo environment
 
-- [ ] Terraform remote state (encrypted S3 backend + DynamoDB lock)
-- [ ] Infracost in CI (cost estimation on each PR)
-- [ ] AWS Config rules for continuous compliance audit
-- [ ] ECS/EKS support in the `tagged-resources` module
-- [ ] Multi‑environment setup (staging, prod) with Terraform workspaces
+| Metric | Value |
+|--------|-------|
+| Resources scanned | 24 |
+| Initial compliance rate (before project) | ~30% (industry estimate) |
+| Target compliance rate | > 95% |
+| Total monthly cost (dev env) | ~$971 |
+| Estimated savings via AutoShutdown | **~$48/month** |
+| Unallocated costs after tagging | < 5% |
+
+> **Source**: Flexera State of the Cloud 2024 — [flexera.com](https://info.flexera.com/CM-RESEARCH-State-of-the-Cloud-Report)
 
 ---
 
