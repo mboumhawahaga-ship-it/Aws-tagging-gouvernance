@@ -1,0 +1,275 @@
+{
+  "Comment": "AWS Tagging Governance - Pipeline d'escalade par ressource non conforme",
+  "StartAt": "EvaluateResource",
+
+  "States": {
+
+    "EvaluateResource": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "evaluate",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.evaluation",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "FreezeResource"
+    },
+
+    "FreezeResource": {
+      "Type": "Task",
+      "Resource": "${executor_lambda_arn}",
+      "Parameters": {
+        "action": "freeze",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.freeze_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "NotifyJ0"
+    },
+
+    "NotifyJ0": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "notify",
+        "step": "J0",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.notify_j0",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Wait48hJ0"
+    },
+
+    "Wait48hJ0": {
+      "Type": "Wait",
+      "Seconds": 172800,
+      "Next": "CheckComplianceJ2"
+    },
+
+    "CheckComplianceJ2": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "check_compliance",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.compliance_j2",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "IsCompliantJ2"
+    },
+
+    "IsCompliantJ2": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.compliance_j2.compliant",
+          "BooleanEquals": true,
+          "Next": "ResumeResource"
+        }
+      ],
+      "Default": "NotifyJ2"
+    },
+
+    "ResumeResource": {
+      "Type": "Task",
+      "Resource": "${executor_lambda_arn}",
+      "Parameters": {
+        "action": "resume",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.resume_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Done"
+    },
+
+    "NotifyJ2": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "notify",
+        "step": "J2",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.notify_j2",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Wait48hJ2"
+    },
+
+    "Wait48hJ2": {
+      "Type": "Wait",
+      "Seconds": 172800,
+      "Next": "CheckComplianceJ4"
+    },
+
+    "CheckComplianceJ4": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "check_compliance",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.compliance_j4",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "IsCompliantJ4"
+    },
+
+    "IsCompliantJ4": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.compliance_j4.compliant",
+          "BooleanEquals": true,
+          "Next": "ResumeResource"
+        }
+      ],
+      "Default": "DeleteResource"
+    },
+
+    "DeleteResource": {
+      "Type": "Task",
+      "Resource": "${executor_lambda_arn}",
+      "Parameters": {
+        "action": "delete",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.delete_result",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "NotifyFailure",
+          "ResultPath": "$.error"
+        }
+      ],
+      "Next": "Done"
+    },
+
+    "NotifyFailure": {
+      "Type": "Task",
+      "Resource": "${controller_lambda_arn}",
+      "Parameters": {
+        "action": "notify",
+        "step": "FAILURE",
+        "resource.$": "$"
+      },
+      "ResultPath": "$.notify_failure",
+      "Next": "Failed"
+    },
+
+    "Done": {
+      "Type": "Succeed"
+    },
+
+    "Failed": {
+      "Type": "Fail",
+      "Error": "GovernancePipelineFailed",
+      "Cause": "Une étape du pipeline a échoué après les retries. Voir NotifyFailure."
+    }
+  }
+}
