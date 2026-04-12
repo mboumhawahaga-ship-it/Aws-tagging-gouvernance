@@ -1,0 +1,45 @@
+name: "💰 FinOps Cost Estimation"
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/ci-infracost.yml'
+
+jobs:
+  infracost:
+    name: Estimate infrastructure cost
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Infracost cost estimate
+        run: |
+          infracost breakdown \
+            --path terraform/environments/dev \
+            --format json \
+            --out-file /tmp/infracost.json
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Post Infracost comment on PR
+        run: |
+          infracost comment github \
+            --path=/tmp/infracost.json \
+            --repo=$GITHUB_REPOSITORY \
+            --github-token=${{ github.token }} \
+            --pull-request=${{ github.event.pull_request.number }} \
+            --behavior=update
+        env:
+          INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}

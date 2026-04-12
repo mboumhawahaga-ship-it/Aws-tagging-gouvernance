@@ -1,0 +1,2 @@
+# Copier ce fichier en terraform.tfvars et remplir les valeurs
+notification_email = "votre.email@entreprise.com"

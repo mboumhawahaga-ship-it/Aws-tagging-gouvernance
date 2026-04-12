@@ -6,13 +6,16 @@ locals {
   lambda_name = "${var.environment}-tag-cleanup"
   lambda_zip  = "${path.module}/lambda_function.zip"
 }
+# Récupère automatiquement l'ID du compte AWS
+data "aws_caller_identity" "current" {}
 
 # ========================================
 # TOPIC SNS POUR LES NOTIFICATIONS
 # ========================================
 
 resource "aws_sns_topic" "cleanup_notifications" {
-  name = "${local.lambda_name}-notifications"
+  name              = "${local.lambda_name}-notifications"
+  kms_master_key_id = "alias/aws/sns"
 
   tags = {
     Name        = "${local.lambda_name}-notifications"
@@ -73,32 +76,38 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Effect = "Allow"
         Action = [
-          # EC2
           "ec2:DescribeInstances",
-          "ec2:TerminateInstances",
           "ec2:DescribeTags",
-          # RDS
           "rds:DescribeDBInstances",
-          "rds:DeleteDBInstance",
           "rds:ListTagsForResource",
-          # S3
           "s3:ListAllMyBuckets",
           "s3:GetBucketTagging",
-          "s3:DeleteBucket",
-          "s3:ListBucket",
-          "s3:DeleteObject",
-          # Lambda
           "lambda:ListFunctions",
           "lambda:ListTags",
-          "lambda:DeleteFunction",
-          # Tag API
           "tag:GetResources",
           "tag:GetTagKeys",
-          "tag:GetTagValues",
-          # SNS
+          "tag:GetTagValues"
+        ]
+        Resource = "*" # Ces actions de lecture nécessitent souvent "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:TerminateInstances",
+          "rds:DeleteDBInstance",
+          "s3:DeleteBucket",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "lambda:DeleteFunction",
           "sns:Publish"
         ]
-        Resource = "*"
+        Resource = [
+          "arn:aws:ec2:eu-west-1:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:rds:eu-west-1:${data.aws_caller_identity.current.account_id}:db:*",
+          "arn:aws:s3:::*",
+          "arn:aws:lambda:eu-west-1:${data.aws_caller_identity.current.account_id}:function:*",
+          "arn:aws:sns:eu-west-1:${data.aws_caller_identity.current.account_id}:${local.lambda_name}-notifications"
+        ]
       }
     ]
   })

@@ -10,6 +10,6 @@ resource "aws_budgets_budget" "monthly_alert" {
     threshold                  = 80
     threshold_type             = "PERCENTAGE"
     notification_type          = "ACTUAL"
-    subscriber_email_addresses = ["your-email@example.com"]
+    subscriber_email_addresses = [var.budget_alert_email]
   }
 }

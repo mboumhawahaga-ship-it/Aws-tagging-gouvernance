@@ -1,6 +1,6 @@
 # ========================================
-# EXEMPLE D'UTILISATION DU MODULE
-# Environnement : DEV
+# EXAMPLE: MODULE USAGE
+# Environment: DEV
 # ========================================
 
 # Configuration du provider AWS
@@ -66,10 +66,10 @@ module "analytics_db" {
   rds_generate_random_password = true
 
   # 🔒 Sécurité : Options supplémentaires
-  rds_storage_encrypted   = true  # Chiffrement au repos (activé par défaut)
-  rds_publicly_accessible = false # Pas d'accès public (sécurité)
-  rds_backup_retention_period = 1 # 1 jour de backup pour dev (économique)
-  rds_multi_az            = false # Pas de Multi-AZ en dev (économique)
+  rds_storage_encrypted       = true  # Chiffrement au repos (activé par défaut)
+  rds_publicly_accessible     = false # Pas d'accès public (sécurité)
+  rds_backup_retention_period = 1     # 1 jour de backup pour dev (économique)
+  rds_multi_az                = false # Pas de Multi-AZ en dev (économique)
 
   # Alternative : fournir un mot de passe manuellement (NON recommandé)
   # rds_generate_random_password = false

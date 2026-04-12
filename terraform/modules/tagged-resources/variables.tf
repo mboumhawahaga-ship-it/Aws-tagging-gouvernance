@@ -1,3 +1,9 @@
+variable "budget_alert_email" {
+  description = "Email address for budget alert notifications"
+  type        = string
+  default     = ""
+}
+
 variable "resource_name" {
   description = "Name of the resource to create"
   type        = string
