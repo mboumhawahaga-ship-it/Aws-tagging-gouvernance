@@ -321,10 +321,8 @@ resource "null_resource" "shared_layer_build" {
   }
 
   provisioner "local-exec" {
-    command = <<EOT
-      mkdir -p ${path.module}/layer_build/python
-      cp -r ${path.module}/../../../lambda/shared ${path.module}/layer_build/python/
-    EOT
+    interpreter = ["PowerShell", "-Command"]
+    command     = "New-Item -ItemType Directory -Force -Path '${path.module}/layer_build/python' | Out-Null; Copy-Item -Recurse -Force '${path.module}/../../../lambda/shared' '${path.module}/layer_build/python/'"
   }
 }
 
