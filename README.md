@@ -1,204 +1,157 @@
-# AWS Tagging Governance
+# AWS Resource Guardian
 
-[![Quality & Security Check](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml/badge.svg)](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-quality.yml)
-[![Infracost](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-infracost.yml/badge.svg)](https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance/actions/workflows/ci-infracost.yml)
+> Safe and progressive cleanup of orphaned AWS resources.
+> Freeze first. Notify. Resume automatically. Delete only as last resort.
 
-> According to the **Flexera State of the Cloud Report 2024**, ~**32% of global cloud spend is wasted** on orphaned or untracked resources — largely because of missing tags.
-> Organizations without enforced tagging typically have **~30% unallocated spend**. After implementing strict tagging + automation, this drops to **below 5%**.
+**Never accidentally delete an important resource again.**
 
-This project implements **end-to-end automated tagging governance** on AWS: IaC enforcement, an intelligent escalation pipeline, FinOps metrics and cost visualization per team.
+---
+
+## The problem this solves
+
+A developer creates an RDS database on a Friday night during an incident — no time for tags.
+A naive cleanup tool deletes it at 2 AM. That's a production incident.
+
+AWS Tag Policies and SCPs help at creation time, but they don't handle **resources that already exist**.
+This tool does — safely.
+
+---
+
+## How it works at a glance
+
+```
+Every 2h
+   │
+   ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Scanner Lambda                                                  │
+│  Scans EC2 · RDS · S3 · Lambda                                  │
+│  Finds resources missing required tags                          │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │  1 Step Function per resource
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Step Functions — 4-day escalation pipeline                     │
+│                                                                  │
+│  Day 0 ──► FREEZE + notify owner (Slack + Email)                │
+│               │                                                  │
+│            48h wait                                              │
+│               │                                                  │
+│  Day 2 ──► Check tags                                           │
+│            ├── Fixed? ──► RESUME automatically ✅               │
+│            └── Still missing? ──► Reminder notification         │
+│                    │                                             │
+│                 48h wait                                         │
+│                    │                                             │
+│  Day 4 ──► Check tags                                           │
+│            ├── Fixed? ──► RESUME automatically ✅               │
+│            └── Still missing? ──► DELETE (last resort) 🗑️       │
+│                                                                  │
+│  Error at any step? ──► NotifyFailure ──► human takes over      │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Metrics Lambda (every 6h)                                       │
+│  Compliance rate · Cost per team · AutoShutdown savings         │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Grafana Dashboard                                               │
+│  Real-time costs · Compliance gauge · Top spenders per squad    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## What happens to each resource type
+
+| Resource | Day 0 — Freeze | If tags fixed | Day 4 — Last resort |
+|----------|---------------|---------------|---------------------|
+| **EC2** | `stop_instances` | `start_instances` ✅ | `terminate_instances` |
+| **RDS** | Snapshot + `stop_db_instance` | `start_db_instance` ✅ | Final snapshot + `delete_db_instance` |
+| **S3** | Block public access + enable versioning | — | **Never auto-deleted** (human decision required) |
+| **Lambda** | `reserved_concurrency = 0` | Remove concurrency limit ✅ | `delete_function` |
+
+> RDS always gets a safety snapshot before any deletion — data is never lost silently.
+
+---
+
+## Required tags
+
+Every AWS resource must have these 5 tags. Terraform rejects deployment if any are missing.
+
+| Tag | Format | Example |
+|-----|--------|---------|
+| `Owner` | email `@company.com` | `john.doe@company.com` |
+| `Squad` | non-empty string | `backend`, `data`, `devops` |
+| `CostCenter` | non-empty string | `CC-123` |
+| `Environment` | `dev` / `staging` / `prod` | `prod` |
+| `AutoShutdown` | `true` / `false` | `true` |
+
+Auto-added: `ManagedBy: Terraform` · `CreatedAt: <stable timestamp>`
 
 ---
 
 ## Why not just use AWS Tag Policies + SCP?
 
-| Capability | Tag Policies | SCP | This project |
-|---|---|---|---|
-| Enforce tag format | ✅ | ✅ | ✅ Terraform validation |
-| Block creation without tags | ❌ | ✅ partial | ✅ Terraform |
+| Capability | Tag Policies | SCP | AWS Resource Guardian |
+|------------|-------------|-----|----------------------|
+| Enforce tag format at creation | ✅ | ✅ | ✅ via Terraform validation |
 | Handle **already existing** resources | ❌ | ❌ | ✅ Scanner Lambda |
-| Escalation pipeline J0 → J2 → J4 | ❌ | ❌ | ✅ Step Functions |
+| 4-day escalation (freeze → notify → delete) | ❌ | ❌ | ✅ Step Functions |
 | RDS snapshot before any action | ❌ | ❌ | ✅ Executor Lambda |
-| Slack + SNS targeted notification | ❌ | ❌ | ✅ Controller Lambda |
-| FinOps metrics + Grafana dashboard | ❌ | ❌ | ✅ Metrics Lambda |
+| Slack + Email notifications | ❌ | ❌ | ✅ Controller Lambda |
+| FinOps dashboard (cost per team) | ❌ | ❌ | ✅ Grafana + CloudWatch |
 | Works **without AWS Organizations** | ✅ | ❌ | ✅ |
 
-Tag Policies + SCP = prevention at creation for large enterprises with Organizations.
-**This project = complete governance** for any team, managing both new and existing resources.
-
 ---
 
-## Architecture
+## Stack
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                        GitHub Actions CI                         │
-│         flake8 · terraform fmt · terraform validate · infracost  │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────────┐
-│                        Terraform (IaC)                           │
-│  tagged-resources · governance-pipeline · metrics-lambda         │
-└───────┬──────────────────────┬───────────────────────────────────┘
-        │                      │
-┌───────▼───────┐    ┌─────────▼──────────────────────────────────┐
-│  AWS Resources│    │           Governance Pipeline               │
-│  EC2 · RDS    │    │                                             │
-│  S3  · Lambda │    │  EventBridge cron 2h                        │
-│  tags enforced│    │       ↓                                     │
-│  KMS · Secrets│    │  Lambda Scanner                             │
-│  Manager      │    │  (detects non-compliant resources)          │
-└───────────────┘    │       ↓  1 execution per resource           │
-                     │  Step Functions State Machine               │
-                     │  ├─ Controller (evaluate/notify/check)      │
-                     │  └─ Executor   (freeze/resume/delete)       │
-                     │       ↓                                     │
-                     │  SNS email + Slack notification             │
-                     └─────────────────────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────────┐
-│                    Lambda Metrics (every 6h)                     │
-│              CloudWatch · Cost Explorer API                      │
-└──────────────────────────────┬───────────────────────────────────┘
-                               │
-┌──────────────────────────────▼───────────────────────────────────┐
-│                         Grafana Dashboard                        │
-│          compliance rate · costs/squad · AutoShutdown savings    │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Governance pipeline — the thinking behind it
-
-> **Why not just delete automatically?**
-> A dev creates an RDS on a Friday night for an incident — no time for tags.
-> An auto-delete at 2 AM = data loss. That's a production incident.
-> The right pattern: **alert → freeze → give time → delete as last resort.**
-
-```mermaid
-flowchart TD
-    A([EventBridge\ncron 2h]) --> B[Lambda Scanner\nscans EC2 · RDS · S3 · Lambda]
-    B --> C{Non-compliant\nresource?}
-    C -- No --> Z([Done])
-    C -- Yes --> D[Start Step Functions\n1 execution per resource]
-
-    D --> E[Controller: Evaluate\nhas Owner tag?]
-    E --> F[Executor: Freeze\nEC2 stop · RDS snapshot+stop\nS3 block public · Lambda concurrency=0]
-    F --> G[Controller: Notify J+0\nSlack + SNS email]
-    G --> H[Wait 48h]
-
-    H --> I[Controller: Check compliance\ntags corrected?]
-    I -- Yes --> J[Executor: Resume\nrestart resource automatically]
-    J --> Z
-
-    I -- No --> K[Controller: Notify J+2\nReminder — 48h left]
-    K --> L[Wait 48h]
-
-    L --> M[Controller: Check compliance]
-    M -- Yes --> J
-    M -- No --> N[Executor: Delete\nEC2 terminate · RDS final snapshot+delete\nLambda delete · S3 never deleted]
-    N --> Z
-
-    style F fill:#FFA500,color:#000
-    style G fill:#FFA500,color:#000
-    style K fill:#FF4500,color:#fff
-    style N fill:#CC0000,color:#fff
-    style J fill:#36A64F,color:#fff
-```
-
----
-
-## Mandatory tags
-
-All AWS resources **must** have these tags — Terraform rejects creation if one is missing.
-
-| Tag | Validation | Example | FinOps impact |
-|-----|------------|---------|---------------|
-| `Owner` | email regex `@company.com` | `john.doe@company.com` | Clear accountability |
-| `Squad` | non-empty | `Data`, `Backend`, `DevOps` | Team-level chargeback |
-| `CostCenter` | non-empty | `CC-123` | Financial showback |
-| `AutoShutdown` | boolean | `true` / `false` | ~50% savings on dev envs |
-| `Environment` | `dev`/`staging`/`prod` | `prod` | Cost separation per env |
-
-**Automatic tags**: `ManagedBy: Terraform` · `CreatedAt: <stable timestamp via time_static>`
-
----
-
-## What happens per resource type
-
-| Resource | Freeze (J+0) | Resume (if fixed) | Delete (J+4) |
-|---|---|---|---|
-| EC2 | `stop_instances` | `start_instances` | `terminate_instances` |
-| RDS | snapshot + `stop_db_instance` | `start_db_instance` | final snapshot + `delete_db_instance` |
-| S3 | block public access + enable versioning | — | **never deleted automatically** |
-| Lambda | `concurrency = 0` | `delete_concurrency` | `delete_function` |
-
----
-
-## FinOps features
-
-**1. Enforcement at creation (Terraform)**
-- Regex validation on `Owner` — rejects deployment if any tag is missing
-- Encryption by default: RDS (KMS) + S3 (AES-256)
-- RDS password auto-generated (32 chars) → stored in Secrets Manager
-
-**2. Governance pipeline (Step Functions + 3 Lambdas)**
-- `scanner` — detects non-compliant resources, launches 1 Step Function per resource
-- `controller` — evaluates, checks compliance, sends Slack + SNS notifications
-- `executor` — freeze / resume / delete with `DRY_RUN=true` by default
-- Retry (3x backoff) + Catch on every state → `NotifyFailure` if pipeline errors
-- Lambda Powertools on all 3: structured logs, X-Ray tracing, CloudWatch metrics
-
-**3. Real-time FinOps metrics (Lambda + CloudWatch)**
-- Global tag compliance rate (namespace `TagCompliance`)
-- Spend per `Squad` and `CostCenter` via Cost Explorer API
-- Estimated savings from `AutoShutdown` tag
-- Top 10 most expensive AWS services
-- Runs every 6 hours via EventBridge
-
-**4. Grafana dashboard**
-- Total monthly cost for current month
-- Tag compliance gauge (target: > 95%)
-- Cost breakdown by Squad (donut chart)
-- 30-day cost evolution (time series)
-- Non-compliant resources highlighted in red if > 5
+| Component | Technology |
+|-----------|-----------|
+| Infrastructure | Terraform (modules: `tagged-resources`, `governance-pipeline`, `metrics-lambda`) |
+| Escalation pipeline | AWS Step Functions + 3 Lambda functions (Python 3.12) |
+| Observability | AWS Lambda Powertools — structured logs, X-Ray tracing, CloudWatch metrics |
+| Notifications | SNS (email) + Slack webhook (stored in Secrets Manager) |
+| FinOps metrics | CloudWatch custom metrics + Cost Explorer API |
+| Dashboard | Grafana (CloudWatch datasource) |
+| CI/CD | GitHub Actions — flake8, terraform fmt/validate, Infracost |
 
 ---
 
 ## Project structure
 
 ```
-aws-tagging-governance/
-├── .github/workflows/
-│   ├── ci-quality.yml              # Flake8 + terraform fmt/validate
-│   └── ci-infracost.yml            # Cost estimation on PRs
+aws-resource-guardian/
+├── lambda/
+│   ├── scanner/        # Detects non-compliant resources, starts 1 Step Function per resource
+│   ├── controller/     # Evaluate · notify (Slack + SNS) · check compliance
+│   ├── executor/       # Freeze · resume · delete — DRY_RUN=true by default
+│   └── metrics/        # FinOps metrics — compliance rate, cost per squad
 ├── terraform/
 │   ├── modules/
-│   │   ├── tagged-resources/       # Tag enforcement — EC2, RDS, S3, Lambda
-│   │   ├── governance-pipeline/    # Scanner + Controller + Executor + Step Functions
-│   │   ├── metrics-lambda/         # CloudWatch metrics + Cost Explorer
-│   │   └── cleanup-lambda/         # Legacy cleanup (kept for reference)
+│   │   ├── tagged-resources/     # Tag enforcement on EC2, RDS, S3, Lambda
+│   │   ├── governance-pipeline/  # Scanner + Step Functions + Controller + Executor
+│   │   ├── step-function/        # State machine ASL definition
+│   │   ├── eventbridge/          # Cron trigger every 2h
+│   │   └── metrics-lambda/       # CloudWatch metrics + Cost Explorer
 │   └── environments/
-│       ├── dev/                    # Dev environment
-│       └── prod/                   # Production environment (dry_run=true)
-├── lambda/
-│   ├── scanner/                    # Detects non-compliant resources
-│   ├── controller/                 # Evaluate · notify · check compliance
-│   ├── executor/                   # Freeze · resume · delete
-│   ├── metrics/                    # FinOps metrics collection
-│   └── cleanup/                    # Legacy + unit tests (moto)
+│       ├── dev/                  # Dev environment
+│       └── prod/                 # Production (dry_run=true until validated)
 ├── grafana/
-│   ├── dashboards/                 # Dashboard JSON (CloudWatch datasource)
-│   └── provisioning/               # Auto-configured datasource
+│   ├── dashboards/               # Dashboard JSON (CloudWatch datasource)
+│   └── provisioning/             # Auto-configured datasource
 ├── scripts/
-│   ├── publish_mock_metrics.py     # Feeds dashboard for demos
-│   ├── validate-tags.sh            # Manual tag validation
-│   └── setup-cost-explorer.ps1     # Cost Allocation Tags activation
+│   ├── publish_mock_metrics.py   # Feed the dashboard with demo data
+│   ├── validate-tags.sh          # Manual tag check on existing resources
+│   └── setup-cost-explorer.ps1   # Activate Cost Allocation Tags on AWS
 └── docs/
-    ├── GUIDE_DEMARRAGE.md          # Getting started guide
-    ├── SECURITY.md                 # Security best practices
-    └── JOURNAL_DE_BORD.md          # Engineering log — errors & solutions
+    ├── GUIDE_DEMARRAGE.md
+    ├── SECURITY.md
+    └── JOURNAL_DE_BORD.md        # Engineering log — errors and solutions
 ```
 
 ---
@@ -208,23 +161,38 @@ aws-tagging-governance/
 ```bash
 # 1. Clone
 git clone https://github.com/mboumhawahaga-ship-it/Aws-tagging-gouvernance.git
+cd aws-tagging-gouvernance
 
 # 2. Configure AWS credentials
 cp config/.env.example config/.env
-# Edit config/.env with your AWS credentials
+# Edit config/.env with your AWS credentials and notification email
 
-# 3. Deploy infrastructure
+# 3. Deploy (dev environment — dry_run=true, no real actions taken)
 cd terraform/environments/dev
 terraform init
 terraform plan
 terraform apply
 
-# 4. Launch Grafana dashboard (local demo)
+# 4. Run the Grafana dashboard locally
 cd ../../..
 docker-compose up -d
 python scripts/publish_mock_metrics.py
-# → http://localhost:3000
+# Open http://localhost:3000
 ```
+
+---
+
+## Safety by design
+
+| Design choice | Why |
+|---------------|-----|
+| `DRY_RUN=true` by default | Zero risk on first rollout — observe the full pipeline before enabling real actions |
+| 48h grace periods × 2 | Realistic time for a developer to add missing tags |
+| S3 is never auto-deleted | A bucket can hold data from multiple teams — deletion requires a human decision |
+| RDS always snapshots before delete | Data is never lost silently, even as a last resort |
+| Slack webhook in Secrets Manager | Webhook URL never exposed in env vars or Terraform state |
+| Retry (3× exponential backoff) on every state | Transient AWS errors don't abort the pipeline |
+| `NotifyFailure` catch-all | If anything breaks, a human is alerted immediately |
 
 ---
 
@@ -235,49 +203,18 @@ python scripts/publish_mock_metrics.py
 cd lambda/cleanup
 pip install pytest moto boto3
 pytest test_handler.py -v
+# → 12/12 PASSED
 
 # Terraform validation
 cd terraform/environments/dev
 terraform validate
 
-# Manual tag validation on existing resources
+# Manual tag check on existing resources
 bash scripts/validate-tags.sh
 ```
 
 ---
 
-## Notable technical choices
-
-| Decision | Rationale |
-|----------|-----------|
-| Step Functions for escalation | Native wait states, retry/catch, full execution history in console |
-| `DRY_RUN=true` by default | Zero risk during first rollout — observe before acting |
-| 48h grace periods (x2) | Realistic time for a dev to fix tags before deletion |
-| S3 never auto-deleted | A bucket can hold data from multiple teams — human decision required |
-| RDS always snapshot before delete | Data safety — final snapshot kept even after deletion |
-| Lambda Powertools | Structured logs + X-Ray tracing + CloudWatch metrics on all 3 Lambdas |
-| Slack webhook via Secrets Manager | Webhook URL never exposed in env vars or Terraform state |
-| `arm64` for all Lambdas | ~20% cheaper than x86 on AWS Graviton |
-| `time_static` for `CreatedAt` | Stable tag — no noisy Terraform diffs on every plan |
-| Secrets Manager for RDS | Zero secrets in Terraform state or environment variables |
-
----
-
-## Results on demo environment
-
-| Metric | Value |
-|--------|-------|
-| Resources scanned | 24 |
-| Initial compliance rate (before project) | ~30% (industry estimate) |
-| Target compliance rate | > 95% |
-| Total monthly cost (dev env) | ~$971 |
-| Estimated savings via AutoShutdown | **~$48/month** |
-| Unallocated costs after tagging | < 5% |
-
-> **Source**: Flexera State of the Cloud 2024 — [flexera.com](https://info.flexera.com/CM-RESEARCH-State-of-the-Cloud-Report)
-
----
-
 ## License
 
-MIT License
+MIT

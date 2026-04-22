@@ -622,6 +622,59 @@ terraform/modules/step-function/state_machine.asl.json
 
 ---
 
+## Amélioration #6 - Module partagé shared/ pour éviter la duplication de code (22/04/2026)
+
+| | |
+|---|---|
+| **Outil utilisé** | Amazon Q |
+| **Fichiers créés** | `lambda/shared/__init__.py`, `lambda/shared/config.py` |
+| **Fichiers modifiés** | `lambda/scanner/handler.py`, `lambda/controller/handler.py`, `terraform/modules/governance-pipeline/main.tf` |
+
+### Problème
+
+`REQUIRED_TAGS` et `check_tags()` étaient copiés-collés dans `scanner/handler.py` ET `controller/handler.py`. Pour ajouter un tag obligatoire, il fallait modifier 2 fichiers — risque d'oublier un fichier ou de faire une typo.
+
+### Ce qui a été fait
+
+**Création de `lambda/shared/config.py`** — source unique de vérité :
+```python
+REQUIRED_TAGS = ["Owner", "Squad", "CostCenter", "Environment"]
+
+def check_tags(tags: list) -> tuple[bool, list]: ...
+def get_tag_value(tags: list, key: str) -> str: ...
+```
+
+**`scanner/handler.py` et `controller/handler.py`** — avant/après :
+```python
+# AVANT — dupliqué dans chaque fichier
+REQUIRED_TAGS = ["Owner", "Squad", "CostCenter", "Environment"]
+def check_tags(...): ...
+
+# APRÈS — import unique
+from shared.config import REQUIRED_TAGS, check_tags, get_tag_value
+```
+
+**`terraform/modules/governance-pipeline/main.tf`** — ajout d'un Lambda Layer :
+```hcl
+# Les Lambdas sont déployées en .zip — shared/ doit être disponible au runtime
+resource "aws_lambda_layer_version" "shared" { ... }
+
+# Ajouté sur scanner et controller
+layers = [aws_lambda_layer_version.shared.arn]
+```
+
+### Résultat
+
+Avant : ajouter un tag obligatoire "Project" = modifier 2 fichiers, risque de désynchronisation.
+Après : modifier uniquement `lambda/shared/config.py` = appliqué partout automatiquement.
+
+### Règle à retenir
+> Quand la même constante ou fonction apparaît dans plusieurs Lambdas, la centraliser dans un module partagé.
+> Sur AWS, le mécanisme pour partager du code entre Lambdas est le **Lambda Layer**.
+> Sans le Layer, le `import shared.config` échoue au runtime même si le fichier existe localement.
+
+---
+
 ## TODO - Prochaine étape : Tests en prod
 
 | | |
