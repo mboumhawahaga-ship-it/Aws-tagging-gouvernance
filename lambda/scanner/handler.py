@@ -14,7 +14,8 @@ logger = Logger(service="governance-scanner")
 tracer = Tracer(service="governance-scanner")
 metrics = Metrics(namespace="TagGovernance", service="governance-scanner")
 
-REQUIRED_TAGS = ["Owner", "Squad", "CostCenter", "Environment"]
+from shared.config import REQUIRED_TAGS, check_tags, get_tag_value
+
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 STATE_MACHINE_ARN = os.environ["STATE_MACHINE_ARN"]
 
@@ -30,17 +31,7 @@ def get_account_id() -> str:
     return sts.get_caller_identity()["Account"]
 
 
-def check_tags(tags: list) -> tuple[bool, list]:
-    keys = [t.get("Key") for t in tags] if tags else []
-    missing = [t for t in REQUIRED_TAGS if t not in keys]
-    return len(missing) == 0, missing
 
-
-def get_tag_value(tags: list, key: str) -> str:
-    for t in tags:
-        if t.get("Key") == key:
-            return t.get("Value", "")
-    return ""
 
 
 def build_payload(resource_id: str, resource_type: str, resource_arn: str, tags: list, missing: list) -> dict:

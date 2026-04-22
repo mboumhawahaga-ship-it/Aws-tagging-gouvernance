@@ -18,7 +18,8 @@ logger = Logger(service="governance-controller")
 tracer = Tracer(service="governance-controller")
 metrics = Metrics(namespace="TagGovernance", service="governance-controller")
 
-REQUIRED_TAGS = ["Owner", "Squad", "CostCenter", "Environment"]
+from shared.config import REQUIRED_TAGS, check_tags
+
 REGION = os.environ.get("AWS_REGION", "eu-west-1")
 SNS_TOPIC_ARN = os.environ["SNS_TOPIC_ARN"]
 ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
@@ -50,12 +51,6 @@ def get_slack_webhook_url() -> str:
     except Exception as e:
         logger.warning("Impossible de récupérer le webhook Slack", extra={"error": str(e)})
         return ""
-
-
-def check_tags(tags: list) -> tuple[bool, list]:
-    keys = [t.get("Key") for t in tags] if tags else []
-    missing = [t for t in REQUIRED_TAGS if t not in keys]
-    return len(missing) == 0, missing
 
 
 def get_current_tags(resource_type: str, resource_id: str, resource_arn: str) -> list:

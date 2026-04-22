@@ -310,6 +310,39 @@ resource "aws_iam_role_policy" "executor" {
 }
 
 # ========================================
+# LAMBDA LAYER — shared/
+# ========================================
+
+# Le layer attend la structure : python/shared/config.py
+# On copie shared/ dans un dossier temporaire avec ce chemin
+resource "null_resource" "shared_layer_build" {
+  triggers = {
+    config_hash = filemd5("${path.module}/../../../lambda/shared/config.py")
+  }
+
+  provisioner "local-exec" {
+    command = <<EOT
+      mkdir -p ${path.module}/layer_build/python
+      cp -r ${path.module}/../../../lambda/shared ${path.module}/layer_build/python/
+    EOT
+  }
+}
+
+data "archive_file" "shared_layer" {
+  type        = "zip"
+  source_dir  = "${path.module}/layer_build"
+  output_path = "${path.module}/shared_layer.zip"
+  depends_on  = [null_resource.shared_layer_build]
+}
+
+resource "aws_lambda_layer_version" "shared" {
+  layer_name          = "${local.prefix}-shared"
+  filename            = data.archive_file.shared_layer.output_path
+  source_code_hash    = data.archive_file.shared_layer.output_base64sha256
+  compatible_runtimes = ["python3.12"]
+}
+
+# ========================================
 # LAMBDA ZIPS
 # ========================================
 
@@ -348,6 +381,7 @@ resource "aws_lambda_function" "scanner" {
   memory_size      = 256
   filename         = data.archive_file.scanner.output_path
   source_code_hash = data.archive_file.scanner.output_base64sha256
+  layers           = [aws_lambda_layer_version.shared.arn]
 
   environment {
     variables = {
@@ -375,6 +409,7 @@ resource "aws_lambda_function" "controller" {
   memory_size      = 128
   filename         = data.archive_file.controller.output_path
   source_code_hash = data.archive_file.controller.output_base64sha256
+  layers           = [aws_lambda_layer_version.shared.arn]
 
   environment {
     variables = {
