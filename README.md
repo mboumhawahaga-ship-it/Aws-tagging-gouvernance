@@ -1,166 +1,281 @@
-# AWS Cloud Cost Allocation & Tagging Governance Framework
+# Red Queen - AWS Tag Governance Platform
 
-A serverless FinOps governance system designed to improve cloud cost visibility, enforce resource ownership, and enable reliable chargeback across multi-team AWS environments—without impacting delivery velocity.
+## Overview
 
----
+Red Queen is a serverless cloud governance platform designed to automate AWS tagging compliance at scale.
 
-## 🎯 Business Context
+The platform continuously detects non-compliant resources, automatically applies default tags, notifies responsible teams, and enforces remediation Service Level Agreements (SLAs).
 
-In multi-team AWS environments, lack of consistent tagging leads to:
+If resources remain non-compliant beyond their remediation window, Red Queen automatically quarantines them to prevent unmanaged cloud consumption and improve cost accountability.
 
-- Unallocated cloud spend that cannot be attributed to teams
-- Orphaned resources with no clear ownership
-- Limited visibility for Finance and Engineering leadership
-
-This creates a gap between cloud usage and financial accountability, making FinOps practices difficult to implement at scale.
+The platform enables organizations to establish proactive cloud governance without slowing down engineering teams.
 
 ---
 
-## 💡 Business Objectives
+## Business Problem
 
-This framework addresses three core FinOps goals:
+Cloud cost allocation, security governance, and operational ownership heavily depend on tagging.
 
-- **Cost Visibility:** ensure all cloud spend can be mapped to business units
-- **Cost Allocation (Chargeback/Showback):** enable accurate financial reporting per team
-- **Operational Accountability:** enforce ownership of cloud resources at creation time
+In practice, engineering teams frequently deploy resources without the required metadata due to:
 
----
+* Deployment speed pressures.
+* Infrastructure automation gaps.
+* Human error.
+* Inconsistent governance processes.
 
-## 📊 Business Outcomes
+Missing tags create several problems:
 
-### 1. Improved Cost Attribution
+* Cloud costs cannot be attributed accurately.
+* Ownership becomes unclear.
+* Compliance requirements cannot be enforced.
+* Unmanaged resources accumulate over time.
 
-Cloud spend becomes structured by:
-
-- Squad
-- Cost Center
-- Environment
-- Resource Owner
-
-→ Enables Finance to build reliable cost allocation reports in AWS Cost Explorer
-
-### 2. Reduced Unallocated Spend
-
-Untagged or mis-tagged resources are detected early and flagged to responsible teams before month-end reporting.
-
-### 3. Stronger Engineering Accountability
-
-Each resource is linked to a clear owning team, reducing:
-
-- orphaned infrastructure
-- unused resources
-- unclear ownership disputes
-
-### 4. Non-Disruptive Governance
-
-Compliance is enforced through:
-
-- automated tagging
-- alerts
-- SLA-based remediation
-
-No destructive actions are taken on production resources.
+Red Queen automates the entire tagging governance lifecycle.
 
 ---
 
-## 📈 FinOps KPIs
+## Key Features
 
-| KPI | Description | Target |
-|-----|-------------|--------|
-| **Allocated Spend %** | % of AWS costs mapped to valid tags | > 90% |
-| **Unallocated Spend** | Cost not assigned to any CostCenter | decreasing trend |
-| **Tag Coverage** | Resources with Owner/Squad/CostCenter | 100% |
-| **Placeholder Rate** | Invalid or fake values detected | ~0% |
-| **Time to Remediate** | Violation → resolution time | < 36h critical / < 7 days non-critical |
-
-> **Estimated impact:** Enables >90% cost allocation coverage through enforced tagging strategy. Reduces unallocated ("No Tag") spend typically found in 30–60% of AWS environments via continuous compliance enforcement.
+* Automatic resource tagging at creation time.
+* Continuous compliance evaluation using AWS Config.
+* Criticality classification based on workload type and business metadata.
+* SLA-driven remediation workflows.
+* Automated quarantine for unresolved violations.
+* Multi-channel notifications (Email + Slack).
+* Manual governance feedback API.
+* Real-time governance dashboards.
+* Dry-run mode for safe validation.
+* End-to-end encryption using AWS KMS.
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture
 
-The system is fully event-driven and serverless, acting as a governance layer on top of AWS resource provisioning.
+Governance workflow:
 
 ```
-CloudTrail + EventBridge
-        ↓
-Auto-Tagging Lambda
-  Applies missing operational metadata (when possible)
-        ↓
-AWS Config Rules
-  Continuously evaluates tagging compliance
-        ↓
-SNS / API Layer
-  Notifies and engages responsible teams
-        ↓
-AWS Cost Explorer
-  Provides financial reporting and validation layer
+CloudTrail Resource Creation
+                ↓
+         EventBridge
+                ↓
+        Auto-Tagging Lambda
+                ↓
+          AWS Config
+                ↓
+    Compliance Evaluation
+                ↓
+      SLA-based Notifications
+                ↓
+      EventBridge Scheduler
+                ↓
+Automatic Remediation or Quarantine
 ```
 
----
-
-## ⚙️ Governance Model
-
-### Tag Policy (Required)
-
-| Tag | Purpose |
-|-----|---------|
-| `Owner` | accountability |
-| `Squad` | engineering team ownership |
-| `CostCenter` | financial allocation |
-| `Environment` | workload classification |
-
-### SLA-Based Enforcement
-
-| Severity | Scope | SLA |
-|----------|-------|-----|
-| **CRITICAL** | Production workloads / high-cost resources | 36h |
-| **NON-CRITICAL** | Non-production / ephemeral workloads | 7 days |
+The entire platform operates using a fully serverless architecture.
 
 ---
 
-## 🧾 FinOps Reporting Flow
+## AWS Services
 
-1. Activate cost allocation tags in AWS Billing
-2. Wait for data propagation (24–48h)
-3. Use Cost Explorer grouped by `CostCenter`
-4. Compare pre/post deployment allocation rates
+* AWS Lambda
+* Amazon EventBridge
+* AWS Config
+* AWS CloudTrail
+* Amazon DynamoDB
+* Amazon SNS
+* Amazon API Gateway
+* AWS KMS
+* Amazon CloudWatch
+* AWS IAM
 
-Example query:
+---
+
+## Governance Model
+
+### Mandatory Tags
+
+The platform enforces the following business metadata:
+
+* Owner
+* Squad
+* CostCenter
+* Environment
+
+### Criticality Classification
+
+Resources are classified automatically:
+
+**Critical**
+
+* RDS instances.
+* Production EC2 instances.
+* Resources tagged `CriticalWorkload=true`.
+
+**Non-Critical**
+
+* Development and non-production workloads.
+
+### SLA Enforcement
+
+| Resource Type | SLA |
+|---|---|
+| Critical workloads | 36 hours |
+| Non-critical workloads | 7 days |
+
+---
+
+## Automated Remediation Workflow
+
+1. Resource created.
+2. Tags validated.
+3. Missing tags automatically applied.
+4. Non-compliant resources detected.
+5. Teams notified.
+6. SLA timer started.
+7. Resource re-evaluated.
+8. Automatic quarantine applied if still non-compliant.
+
+---
+
+## Lambda Functions
+
+| Function | Trigger | Role |
+|---|---|---|
+| `auto-tagger` | EventBridge (CloudTrail creates) | Applies default tags on resource creation |
+| `compliance-evaluator` | EventBridge (Config NON_COMPLIANT) + Scheduler | Evaluates, alerts, quarantines |
+| `feedback-api` | API Gateway v2 | Manual approval and correction interface |
+
+---
+
+## FinOps Capabilities
+
+| Capability | Status |
+|---|---|
+| Tag Compliance Automation | ✓ |
+| Cost Attribution Enforcement | ✓ |
+| Automated Remediation | ✓ |
+| Governance SLA Management | ✓ |
+| Quarantine Workflow | ✓ |
+| Cost Visibility Dashboard | ✓ |
+| Serverless Governance | ✓ |
+| Budget Governance | Planned |
+
+---
+
+## Estimated Business Impact
+
+Conservative estimates based on FinOps industry practices:
+
+* Improve enterprise tag compliance rates from an estimated 50–70% to more than 90%.
+* Increase cloud cost allocation coverage to above 90%.
+* Reduce manual governance effort by an estimated 60–80%.
+* Accelerate remediation of governance violations through automated workflows.
+* Reduce unmanaged cloud resources and orphaned spend.
+
+---
+
+## Example Scenario
+
+Organization size:
+
+* 500 AWS resources.
+* 10 engineering teams.
+
+Typical situation without governance:
+
+* 30–50% of resources partially or completely untagged.
+* Multiple days required for remediation.
+
+With Red Queen:
+
+* Continuous compliance monitoring.
+* Automated remediation.
+* SLA enforcement.
+* Full audit history for every governance event.
+
+---
+
+## Security Controls
+
+### Encryption
+
+* Customer-managed KMS key with automatic rotation.
+* Encryption applied to DynamoDB, SNS and CloudWatch Logs.
+
+### Identity & Access
+
+* Dedicated IAM role per Lambda.
+* Least-privilege permissions model.
+
+### Input Validation
+
+* Resource identifier sanitization.
+* Log injection protection.
+* SSRF protection for external webhooks.
+
+### Safe Operations
+
+* DRY_RUN mode preventing accidental modifications.
+* Strict EventBridge routing preventing race conditions between auto-tagger and compliance-evaluator.
+
+---
+
+## DevOps & Quality
+
+* Infrastructure as Code with Terraform (flat + modular architecture).
+* Automated CI pipeline with GitHub Actions (flake8, terraform fmt, terraform validate).
+* Unit tests with pytest.
+* Local Grafana dashboards (CloudWatch datasource, Docker Compose).
+* Modular Terraform architecture under `terraform/modules/`.
+
+---
+
+## Getting Started
 
 ```bash
-aws ce get-cost-and-usage \
-  --time-period Start=2026-05-01,End=2026-06-01 \
-  --granularity MONTHLY \
-  --metrics UnblendedCost \
-  --group-by Type=TAG,Key=CostCenter
-```
+# 1. Copy and configure variables
+cp infra/terraform.tfvars.example infra/terraform.tfvars
 
----
-
-## 🚀 Deployment Strategy
-
-1. Pilot in a single AWS account (non-production)
-2. Validate tagging compliance and alert flow
-3. Scale per account using identical Terraform module
-4. Enable enforcement after validation phase (`dry_run = false`)
-
-```bash
+# 2. Deploy (dry-run enabled by default)
 cd infra
-cp terraform.tfvars.example terraform.tfvars
 terraform init
-terraform plan
-terraform apply
+terraform apply \
+  -var="sns_email=your@email.com"
+
+# 3. Start local Grafana dashboard
+cd sensible
+cp .env.example .env
+# fill in AWS credentials and Grafana password
+cd ..
+docker-compose up -d
+# Open http://localhost:3000
 ```
 
 ---
 
-## 💼 Why this project matters
+## Technical Highlights
 
-This framework demonstrates:
+* Event-driven serverless architecture.
+* SLA-based automation workflows.
+* Governance-as-Code principles.
+* Automated compliance remediation.
+* Serverless API layer.
+* FinOps-driven governance model.
+* Cloud-native observability.
 
-- FinOps engineering mindset (cost + governance + automation)
-- AWS event-driven architecture design
-- Multi-team cloud governance at scale
-- Production-ready observability & SLA enforcement
-- Strong alignment between Engineering and Finance
+---
+
+## Future Improvements
+
+* AWS Organizations multi-account support.
+* Budget governance integration.
+* Automated exception workflows.
+* FinOps scorecards.
+* Policy-as-Code integration.
+* Service Catalog integration.
+
+---
+
+## License
+
+MIT
